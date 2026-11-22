@@ -127,37 +127,65 @@
   }
 
   // ---------- 音频 ----------
-  // 移动端首次播放必须落在用户手势里，这里在手势中同步解锁一次
+  // 移动端（尤其 iOS）的播放必须先拿到一次「用户激活」，否则第一批 play() 会被静音丢弃。
+  // 关键：只 new 一个 AudioContext 并 resume 是不够的，必须真的播出一点声音，
+  // 页面才会被标记为已激活。这里播一段 20ms 静音 WAV，听不见但有效。
   var audioReady = false;
+  var audioPool = [];
+  var SILENT_WAV = 'data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YaAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+
   function unlockAudio() {
     if (audioReady) return;
     audioReady = true;
+
     try {
       var AC = window.AudioContext || window.webkitAudioContext;
-      if (AC) { var ac = new AC(); if (ac.resume) ac.resume(); setTimeout(function () { ac.close && ac.close(); }, 1200); }
+      if (AC) {
+        var ac = new AC();
+        if (ac.state === 'suspended' && ac.resume) ac.resume();
+      }
+    } catch (e) { /* 忽略 */ }
+
+    try {
+      var sil = new Audio(SILENT_WAV);
+      sil.volume = 0.01;
+      var sp = sil.play();
+      if (sp && sp.catch) sp.catch(function () { /* 忽略 */ });
     } catch (e) { /* 忽略 */ }
   }
 
   function createInnerAudioContext() {
     var el = new Audio();
     el.preload = 'auto';
+    el.setAttribute('playsinline', '');
+    audioPool.push(el);
+
     var api = {
       _src: '',
       get src() { return this._src; },
-      set src(v) { this._src = v; el.src = v; },
+      set src(v) {
+        this._src = v;
+        el.src = v;
+        try { el.load(); } catch (e) { /* 主动触发缓冲，缩短首播延迟 */ }
+      },
       get volume() { return el.volume; },
       set volume(v) { el.volume = Math.max(0, Math.min(1, v)); },
       get loop() { return el.loop; },
       set loop(v) { el.loop = !!v; },
       play: function () {
+        // 注意：媒体未就绪时 el.currentTime = 0 会抛 InvalidStateError。
+        // 必须与 play() 分开 try，否则第一次播放会被连坐吞掉——这正是「第一次消除没声音」的原因。
+        try { el.pause(); } catch (e) { /* 忽略 */ }
+        try { el.currentTime = 0; } catch (e) { /* 未就绪，跳过 */ }
         try {
-          el.pause();
-          el.currentTime = 0;
           var p = el.play();
-          if (p && p.catch) p.catch(function () { /* 自动播放被拦截时静默 */ });
+          if (p && p.catch) p.catch(function () { /* 被自动播放策略拦截时静默 */ });
         } catch (e) { /* 忽略 */ }
       },
-      stop: function () { try { el.pause(); el.currentTime = 0; } catch (e) { /* 忽略 */ } },
+      stop: function () {
+        try { el.pause(); } catch (e) { /* 忽略 */ }
+        try { el.currentTime = 0; } catch (e) { /* 忽略 */ }
+      },
       pause: function () { try { el.pause(); } catch (e) { /* 忽略 */ } },
       seek: function () { },
       destroy: function () { try { el.pause(); el.src = ''; } catch (e) { /* 忽略 */ } },
