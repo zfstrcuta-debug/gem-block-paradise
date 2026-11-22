@@ -1,0 +1,1604 @@
+<!DOCTYPE html><html><head><meta charset=utf-8><style>*{margin:0;padding:0}body{background:#ddd}canvas{display:block;margin:0 auto}</style></head><body><script>
+var wx={
+  createCanvas:function(){var c=document.createElement('canvas');c.width=540;c.height=960;c.id='main';document.body.appendChild(c);return c;},
+  getSystemInfoSync:function(){return {pixelRatio:1,windowWidth:540,windowHeight:960};},
+  onTouchStart:function(){},onTouchMove:function(){},onTouchEnd:function(){},
+  getStorageSync:function(){return 0;},setStorageSync:function(){},
+  getOpenDataContext:function(){return {canvas:document.createElement('canvas'),postMessage:function(){}};}
+};
+/* 宝石方块乐园 - 微信小游戏 Canvas 2D 版 v13（拼豆图鉴收集系统） */
+
+
+// ---------- 配置 ----------
+const DW = 540, DH = 960;          // 设计画布
+const N = 10, CELL = 43, GAP = 4;  // 棋盘（格子尺寸不动）
+const BX = 35, BY = 232;           // 棋盘起点
+const TRAY = 830;                  // 方块托盘中心 y
+const ITEM_Y = 708, ITEM_H = 48;   // 道具栏 y / 高
+const ITEM_X = [35, 195, 355], ITEM_W = 150;
+const ITEM_NAMES = ['大槌子', '还原', '刷新'];
+const I_HAMMER = 0, I_UNDO = 1, I_REFRESH = 2;
+const COLLECT_BONUS = 5;           // 每收集 1 颗目标宝石的额外积分
+const EMPTY = -1, LOCKED = -2;     // 空格 / 锁区（关卡未开放的区域）
+
+// 6 款宝石：唯一彩色来源，保留立体切面质感
+const GEMS = [
+  { name: '玫瑰石', base: '#C98B8B', light: '#EDD3D3', dark: '#A56969' },
+  { name: '海蓝宝', base: '#8FA9B8', light: '#D3E3EC', dark: '#6A8596' },
+  { name: '橄榄石', base: '#9CAF9A', light: '#D7E4D5', dark: '#758B74' },
+  { name: '黄水晶', base: '#D4BC8E', light: '#F1E4C4', dark: '#AC9465' },
+  { name: '紫水晶', base: '#A99BB4', light: '#DFD5E7', dark: '#847592' },
+  { name: '珊瑚石', base: '#C4A28C', light: '#EBD5C6', dark: '#9E7C66' }
+];
+const COLORS = GEMS.map(g => g.base); // 兼容原有存档索引与 place() 的色彩查找
+
+// 极简设计令牌：单一主色 + 中性灰阶，阴影只一层
+const UI = {
+  bg: '#FAF9F6', surface: '#FFFFFF', surfaceLow: '#F1EFE9',
+  primary: '#5C6B63', primarySoft: '#DDE5E0', primaryDeep: '#47554E',
+  onSurface: '#2E2C29', onSurfaceVar: '#767168',
+  outline: '#E2DED5', success: '#6B8E7D', error: '#B86A6A',
+  shadow: 'rgba(46,44,41,0.10)',
+  panel: '#FFFFFF', panelBorder: '#E2DED5', boardOuter: '#FFFFFF', cell: '#F1EFE9',
+  title: '#2E2C29', sub: '#9A958B', score: '#2E2C29', best: '#8A8276', hint: '#8A8276',
+  ok: '#6B8E7D', no: '#B86A6A', btn: '#5C6B63', btnText: '#FFFFFF',
+  itemOff: '#F4F2ED', itemOffText: '#AAA59C',
+  locked: '#EAE7E0', levelBar: '#F1EFE9', levelText: '#5C6B63',
+  rockLight: '#C9C4B9', rockDark: '#9C968B', rockCrack: '#777268', // 锁区裂纹石块
+  btnBlue: '#5C6B63', btnOrange: '#8A8276', btnPurple: '#767168',
+  overlay: 'rgba(46,44,41,0.46)',
+  glow: 'rgba(92,107,99,0.055)'        // 背景氛围光晕
+};
+// 字体令牌：微信小游戏用系统字体栈（iOS 苹方 / Android 思源黑体），按字重与字距分级
+const FONT = {
+  family: '"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif',
+  num: '"DIN Alternate","Helvetica Neue","PingFang SC",sans-serif'
+};
+const SHAPES = [
+  [[0, 0]],                                                              // 1×1
+  [[0, 0], [1, 0]], [[0, 0], [0, 1]],                                    // 1×2 横 / 竖
+  [[0, 0], [1, 0], [2, 0]], [[0, 0], [0, 1], [0, 2]],                    // 1×3 横 / 竖
+  [[0, 0], [1, 0], [2, 0], [3, 0]], [[0, 0], [0, 1], [0, 2], [0, 3]],    // 1×4 横 / 竖
+  [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]],                              // 1×5 横
+  [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]],                              // 1×5 竖
+  [[0, 0], [1, 0], [0, 1], [1, 1]],                                      // 2×2
+  [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [0, 2], [1, 2], [2, 2]], // 3×3
+  [[1, 0], [0, 1], [1, 1], [2, 1]],                                      // 上凸
+  [[0, 0], [1, 0], [2, 0], [1, 1]],                                      // 下凸
+  [[0, 0], [1, 0], [1, 1], [2, 1]], [[1, 0], [2, 0], [0, 1], [1, 1]],    // Z 型 横 / 镜像
+  [[1, 0], [1, 1], [0, 1], [0, 2]], [[0, 0], [0, 1], [1, 1], [1, 2]],    // Z 型 竖 / 镜像
+  [[0, 0], [1, 0], [1, 1], [2, 1], [2, 2]],                              // 闪电阶梯 ↘
+  [[2, 0], [1, 0], [1, 1], [0, 1], [0, 2]]                               // 闪电阶梯 ↙
+];
+
+// ---------- 拼豆图样（原创通用物品，10×10 网格；0/.=空，1-6=宝石色索引） ----------
+// 图鉴分页标签布局：8 篇两行显示，减小标签尺寸避免溢出（绘制与触控共用）
+const ALBUM_TAB = { w: 62, h: 40, gap: 5, x0: 24, y0: 96, cols: 4 };
+const BEAD_PAGES = [
+  { name: '动物', patterns: [
+    { name: '小猫', grid: [
+      '..1....1..', '..11..11..', '.11111111.', '1111111111', '1141111411',
+      '1111111111', '1115115111', '1111111111', '.11111111.', '..111111..'
+    ] },
+    { name: '小鱼', grid: [
+      '..........', '..2222....', '.222222.3.', '2222422233', '.222222333',
+      '..22222333', '...222233.', '....2223..', '...22233..', '..2233....'
+    ] },
+    { name: '小狗', grid: [
+      '..........', '.6......6.', '.66....66.', '.666..666.', '6661661666',
+      '6666666666', '6665115666', '.666..666.', '..66..66..', '...6..6...'
+    ] },
+    { name: '兔子', grid: [
+      '..1....1..', '..1....1..', '..11..11..', '..66..66..', '.666..666.',
+      '6646666466', '6666666666', '.666..666.', '..66..66..', '..........'
+    ] },
+    { name: '小鸟', grid: [
+      '..........', '...2..2...', '..22..22..', '.224..422.', '.222..222.',
+      '2222..2222', '.222..222.', '..44..44..', '...4..4...', '..........'
+    ] },
+    { name: '乌龟', grid: [
+      '..........', '...3..3...', '..33..33..', '.335..533.', '3351..1533',
+      '3351..1533', '.335..533.', '..33..33..', '...3..3...', '.3.3..3.3.'
+    ] },
+    { name: '螃蟹', grid: [
+      '..........', '.1......1.', '.11....11.', '1111111111', '1141111411',
+      '1111111111', '.11111111.', '..111111..', '.1.1..1.1.', '1..1..1..1'
+    ] },
+    { name: '蝴蝶', grid: [
+      '..5....5..', '.5.5..5.5.', '5555..5555', '5551..1555', '5551..1555',
+      '.555..555.', '..55..55..', '...5..5...', '..........', '..........'
+    ] },
+  ]},
+  { name: '文具', patterns: [
+    { name: '铅笔', grid: [
+      '..........', '........5.', '.......55.', '.......55.', '......55..',
+      '.....55...', '....55....', '...55.....', '1144......', '111.......'
+    ] },
+    { name: '书本', grid: [
+      '..........', '..........', '.22222222.', '.24444442.', '.24444442.',
+      '.22222222.', '.24444442.', '.24444442.', '.22222222.', '..........'
+    ] },
+    { name: '橡皮', grid: [
+      '..........', '..........', '..111111..', '.11111111.', '1141111411',
+      '1141111411', '.11111111.', '..111111..', '..........', '..........'
+    ] },
+    { name: '尺子', grid: [
+      '..........', '.44444444.', '.4.4444.4.', '.44444444.', '.4.4444.4.',
+      '.44444444.', '.4.4444.4.', '.44444444.', '.4.4444.4.', '.44444444.'
+    ] },
+    { name: '剪刀', grid: [
+      '..5....5..', '..55..55..', '.5.5555.5.', '.5.5..5.5.', '..5....5..',
+      '..5....5..', '.5.5..5.5.', '.5.5555.5.', '..55..55..', '..5....5..'
+    ] },
+    { name: '书包', grid: [
+      '..........', '..666666..', '.66666666.', '6666666666', '6646666466',
+      '6646666466', '6666666666', '.666..666.', '..55..55..', '..55..55..'
+    ] },
+    { name: '蜡笔', grid: [
+      '......44..', '.....44...', '....44....', '...44.....', '..44......',
+      '.44.......', '44........', '444.......', '114.......', '11........'
+    ] },
+    { name: '回形针', grid: [
+      '..2222....', '.222222...', '.22..22...', '.22..22...', '.222222...',
+      '.22..22...', '.22..22...', '.22..22...', '.222222...', '..2222....'
+    ] },
+  ]},
+  { name: '家具', patterns: [
+    { name: '沙发', grid: [
+      '..........', '..........', '.66666666.', '6666666666', '6666666666',
+      '6166666616', '6666666666', '6666666666', '.6.6..6.6.', '..........'
+    ] },
+    { name: '台灯', grid: [
+      '..........', '...4444...', '..444444..', '..444444..', '...4444...',
+      '...6666...', '...6666...', '...6666...', '..666666..', '..........'
+    ] },
+    { name: '桌子', grid: [
+      '..........', '..........', '6666666666', '6666666666', '6666666666',
+      '..6....6..', '..6....6..', '..6....6..', '.666..666.', '..........'
+    ] },
+    { name: '椅子', grid: [
+      '..........', '.666..666.', '.666..666.', '.666..666.', '.666..666.',
+      '..6....6..', '..6....6..', '..6....6..', '..6....6..', '..........'
+    ] },
+    { name: '床', grid: [
+      '..........', '..........', '..........', '1666666661', '1666666661',
+      '1666666661', '1666666661', '6666666666', '.6.6..6.6.', '..........'
+    ] },
+    { name: '衣柜', grid: [
+      '..........', '1111111111', '1111111111', '1111111111', '1111441111',
+      '1111441111', '1111111111', '1111111111', '1111111111', '.1.1..1.1.'
+    ] },
+    { name: '书架', grid: [
+      '..........', '3333333333', '3131331313', '3333333333', '3131331313',
+      '3333333333', '3131331313', '3333333333', '3333333333', '.3.3..3.3.'
+    ] },
+    { name: '地毯', grid: [
+      '..........', '..........', '..111111..', '.11111111.', '1111111111',
+      '1111111111', '.11111111.', '..111111..', '..........', '..........'
+    ] },
+  ]},
+  { name: '交通', patterns: [
+    { name: '汽车', grid: [
+      '..........', '..555555..', '.55555555.', '5555555555', '5555555555',
+      '6555665556', '6555665556', '6555665556', '.6.6..6.6.', '..........'
+    ] },
+    { name: '纸飞机', grid: [
+      '1.........', '11........', '121.......', '1221......', '12221.....',
+      '122221....', '12.221....', '1..2.21...', '....2.1...', '..........'
+    ] },
+    { name: '自行车', grid: [
+      '..2....2..', '.2.2..2.2.', '..2....2..', '...4444...', '..44444...',
+      '.44..44...', '444..444..', '...66.....', '..6666....', '..........'
+    ] },
+    { name: '轮船', grid: [
+      '..........', '..........', '...5555...', '..555555..', '.55555555.',
+      '6666666666', '6666666666', '.66666666.', '..666666..', '..........'
+    ] },
+    { name: '火车', grid: [
+      '..........', '.55555555.', '5555555555', '5555555555', '5444554445',
+      '5555555555', '5555555555', '.666..666.', '6.6.66.6.6', '..........'
+    ] },
+    { name: '火箭', grid: [
+      '..........', '...1..1...', '..11..11..', '..11..11..', '.111..111.',
+      '.111..111.', '1111111111', '1141111411', '.1.1..1.1.', '..........'
+    ] },
+    { name: '公交', grid: [
+      '..........', '.66666666.', '6666666666', '6666666666', '6222662226',
+      '6222662226', '6666666666', '6.66..66.6', '..........', '..........'
+    ] },
+    { name: '热气球', grid: [
+      '..........', '..555555..', '.55555555.', '5555555555', '5555555555',
+      '5555555555', '.55555555.', '..555555..', '...5..5...', '..........'
+    ] },
+  ]},
+  { name: '水果', patterns: [
+    { name: '苹果', grid: [
+      '..........', '...3333...', '..1.11.1..', '.11111111.', '1111111111',
+      '1111111111', '1111111111', '1111111111', '.11111111.', '..111111..'
+    ] },
+    { name: '草莓', grid: [
+      '..........', '.3.3..3.3.', '.33333333.', '3111111113', '1114114111',
+      '1111111111', '1111111111', '.11111111.', '..111111..', '..........'
+    ] },
+    { name: '香蕉', grid: [
+      '.......44.', '.....444..', '....444...', '...444....', '..444.....',
+      '.444......', '444.......', '44........', '4.........', '..........'
+    ] },
+    { name: '西瓜', grid: [
+      '..........', '..333333..', '.33333333.', '3311111133', '3111111113',
+      '3111111113', '3311111133', '.33333333.', '..333333..', '..........'
+    ] },
+    { name: '葡萄', grid: [
+      '..........', '..33..33..', '.55555555.', '5555555555', '5555555555',
+      '.55555555.', '..555555..', '...5555...', '..........', '..........'
+    ] },
+    { name: '橘子', grid: [
+      '..........', '...3333...', '..666666..', '.66666666.', '6666666666',
+      '6666666666', '6666666666', '.66666666.', '..666666..', '..........'
+    ] },
+    { name: '樱桃', grid: [
+      '..........', '...3..3...', '..3....3..', '.11....11.', '1111..1111',
+      '1111..1111', '.111..111.', '..11..11..', '..........', '..........'
+    ] },
+    { name: '菠萝', grid: [
+      '..........', '.3.3..3.3.', '..333333..', '3444444443', '3444444443',
+      '3444444443', '3444444443', '.44444444.', '..444444..', '..........'
+    ] },
+  ]},
+  { name: '电器', patterns: [
+    { name: '电视', grid: [
+      '..........', '..........', '.66666666.', '6666666666', '6622662266',
+      '6622662266', '6666666666', '6666666666', '.6.6..6.6.', '..........'
+    ] },
+    { name: '电扇', grid: [
+      '..........', '..222222..', '.22222222.', '2222222222', '2222222222',
+      '..22..22..', '...6666...', '...6666...', '..666666..', '..........'
+    ] },
+    { name: '冰箱', grid: [
+      '..........', '2222222222', '2222222222', '2222222222', '2222442222',
+      '2222442222', '2222222222', '2222222222', '2222222222', '.2.2..2.2.'
+    ] },
+    { name: '洗衣机', grid: [
+      '..........', '.22222222.', '2222222222', '2242222422', '2252222522',
+      '2252222522', '2242222422', '2222222222', '2222222222', '.2.2..2.2.'
+    ] },
+    { name: '手机', grid: [
+      '..........', '..555555..', '.55555555.', '.52222225.', '.52222225.',
+      '.52222225.', '.52222225.', '.55555555.', '..555555..', '..........'
+    ] },
+    { name: '电脑', grid: [
+      '..........', '5555555555', '5555555555', '5222552225', '5222552225',
+      '5222552225', '5555555555', '..5....5..', '.555..555.', '..........'
+    ] },
+    { name: '微波', grid: [
+      '..........', '..........', '6666666666', '6222662226', '6222662226',
+      '6666666666', '6646666466', '6666666666', '.6.6..6.6.', '..........'
+    ] },
+    { name: '吹风', grid: [
+      '6.........', '66........', '666.......', '6666......', '66666.4...',
+      '.6666633..', '..666333..', '...6633...', '....66....', '..........'
+    ] },
+  ]},
+  { name: '海鲜', patterns: [
+    { name: '虾', grid: [
+      '...66.....', '..6666....',
+      '.661166...', '.666666...',
+      '..66666...', '...6666...',
+      '....666...', '....6666..',
+      '...666.66.', '..66...66.'
+    ] },
+    { name: '扇贝', grid: [
+      '..........', '....44....',
+      '...4444...', '..444444..',
+      '.44444444.', '4444444444',
+      '4444444444', '.44444444.',
+      '..444444..', '...4444...'
+    ] },
+    { name: '章鱼', grid: [
+      '..........', '...5555...',
+      '..555555..', '.55115555.',
+      '.55555555.', '..555555..',
+      '.55.55.55.', '5.5.5.55.5',
+      '.5.5.5.5.5', '5..5..5..5'
+    ] },
+    { name: '海星', grid: [
+      '....66....', '....66....',
+      '...6666...', '6666666666',
+      '.66666666.', '..666666..',
+      '..66..66..', '.66....66.',
+      '.6......6.', '..........'
+    ] },
+    { name: '水母', grid: [
+      '..........', '...5555...',
+      '..555555..', '.55555555.',
+      '5555555555', '.5.5.5.5.5',
+      '..2.2.2.2.', '.2..2..2..',
+      '2...2...2.', '..........'
+    ] },
+    { name: '龙虾', grid: [
+      '.6......6.', '.66....66.',
+      '..6.66.6..', '...6666...',
+      '..661166..', '..666666..',
+      '...6666...', '....66....',
+      '...66.66..', '..66...66.'
+    ] },
+    { name: '鱿鱼', grid: [
+      '..........', '....11....',
+      '...1111...', '..111111..',
+      '.11111111.', '.11111111.',
+      '.11.11.11.', '1..1..1..1',
+      '1..1..1..1', '.1..1..1..'
+    ] },
+    { name: '海马', grid: [
+      '....44....', '...4444...',
+      '..441144..', '.4444444..',
+      '..44444...', '...444....',
+      '...4444...', '....444...',
+      '...4444...', '..44......'
+    ] },
+  ]},
+  { name: '服装', patterns: [
+    { name: '短袖', grid: [
+      '..22..22..', '.22222222.',
+      '2222112222', '2221111222',
+      '2222222222', '2222222222',
+      '.22222222.', '.22222222.',
+      '..2....2..', '..........'
+    ] },
+    { name: '长裤', grid: [
+      '..........', '.22222222.',
+      '.22222222.', '.22222222.',
+      '.22211222.', '.22.11.22.',
+      '.22....22.', '.22....22.',
+      '.22....22.', '..........'
+    ] },
+    { name: '裙子', grid: [
+      '..........', '...5555...',
+      '..555555..', '.55555555.',
+      '5555555555', '5555115555',
+      '5551111555', '5511111155',
+      '5111111115', '..........'
+    ] },
+    { name: '帽子', grid: [
+      '..........', '...6666...',
+      '..666666..', '.66666666.',
+      '6666666666', '6666666666',
+      '6666666666', '6666666666',
+      '.66666666.', '..666666..'
+    ] },
+    { name: '鞋子', grid: [
+      '..........', '..........',
+      '...22.....', '..2222....',
+      '..22222...', '..222222..',
+      '..2222222.', '.222222222',
+      '4444444444', '..........'
+    ] },
+    { name: '袜子', grid: [
+      '..........', '.44....44.',
+      '.444..444.', '.444..444.',
+      '.444..444.', '.444..444.',
+      '..444444..', '...4444...',
+      '....44....', '..........'
+    ] },
+    { name: '围巾', grid: [
+      '.5......5.', '.555..555.',
+      '..555555..', '..555555..',
+      '...5555...', '...5555...',
+      '...5555...', '...5555...',
+      '..5.55.5..', '.5..55..5.'
+    ] },
+    { name: '手套', grid: [
+      '..........', '..33..33..',
+      '.33333333.', '3333333333',
+      '3333333333', '3333333333',
+      '.33333333.', '..333333..',
+      '..333333..', '...3333...'
+    ] },
+  ]},
+];
+const BEADS = [];
+BEAD_PAGES.forEach((pg, pi) => pg.patterns.forEach((pt, qi) => {
+  const cells = [];
+  pt.grid.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      const ch = row[x];
+      if (ch >= '1' && ch <= '6') cells.push({ x: x, y: y, ci: parseInt(ch, 10) - 1 });
+    }
+  });
+  BEADS.push({ name: pt.name, page: pi, slot: qi, cells: cells, need: 100 });
+}));
+const BEAD_TOTAL = BEADS.length;
+const BEAD_NEED = 100;   // 每个图样需攒 100 颗豆
+
+// ---------- 难度分档 ----------
+// L1-4: 6×6 练习无收集；L5-10: 8×8 每种20颗；L11-20: 10×10+障碍 每种30颗；L21+: 加难
+function tierOf(n) {
+  if (n <= 4) return 0;
+  if (n <= 10) return 1;
+  if (n <= 20) return 2;
+  return 3;
+}
+function activeSizeOf(n) {
+  const t = tierOf(n);
+  return t === 0 ? 6 : t === 1 ? 8 : 10;
+}
+function levelTarget(n) {
+  const t = tierOf(n);
+  if (t === 0) return 40 + n * 10;            // L1-4: 50/60/70/80（6×6 练习降门槛）
+  if (t === 1) return 200 + (n - 5) * 60;     // L5-10: 200~500
+  if (t === 2) return 560 + (n - 11) * 80;    // L11-20: 560~1280
+  return 1320 + (n - 21) * 100;               // L21+: 持续加难
+}
+function obstacleCountOf(n) {
+  const t = tierOf(n);
+  if (t <= 1) return t === 1 ? 2 : 0;         // L5-10 少量 2 块
+  if (t === 2) return 3 + Math.floor((n - 11) / 3); // L11-20: 3~6 块
+  return 7 + Math.floor((n - 21) / 3);        // L21+: 7 块起递增
+}
+// 开放区（居中）：返回 {s:起始格, size:边长, e:结束格(不含)}
+function regionOf(size) {
+  const s = Math.floor((N - size) / 2);
+  return { s: s, size: size, e: s + size };
+}
+function inRegion(x, y, reg) {
+  return x >= reg.s && x < reg.e && y >= reg.s && y < reg.e;
+}
+
+// ---------- 画布与屏幕自适应 ----------
+const canvas = wx.createCanvas();
+const ctx = canvas.getContext('2d');
+const sys = wx.getSystemInfoSync();
+const dpr = sys.pixelRatio;
+canvas.width = sys.windowWidth * dpr;
+canvas.height = sys.windowHeight * dpr;
+const scale = Math.min(sys.windowWidth / DW, sys.windowHeight / DH);
+const ox = (sys.windowWidth - DW * scale) / 2;
+const oy = (sys.windowHeight - DH * scale) / 2;
+const toDesign = (x, y) => ({ x: (x - ox) / scale, y: (y - oy) / scale });
+
+// 开放数据域（好友排行榜）：游客号下降级为空榜
+let openCtx = null, sharedCanvas = null;
+try {
+  openCtx = wx.getOpenDataContext();
+  sharedCanvas = openCtx.canvas;
+  sharedCanvas.width = canvas.width;
+  sharedCanvas.height = canvas.height;
+} catch (e) { openCtx = null; sharedCanvas = null; }
+function uploadScore() {
+  try { if (openCtx) openCtx.postMessage({ action: 'setScore', score: S.bestEndless }); }
+  catch (e) { /* 忽略 */ }
+}
+function showRank() {
+  S.scene = 'rank';
+  if (openCtx) openCtx.postMessage({ action: 'show' });
+}
+// 广告预算：仅无尽模式限制 10 次（含复活/补道具），关卡模式不设限
+function adAvailable() {
+  return S.mode !== 'endless' || S.adUsed < S.adLimit;
+}
+function requestAd(pending) {
+  if (!adAvailable()) { S.msg = '本局广告次数已用完（10/10）'; draw(); return; }
+  S.pendingAd = pending;
+  draw();
+}
+
+// ---------- 状态 ----------
+const S = {
+  scene: 'menu',        // 'menu' | 'play' | 'rank'
+  mode: 'endless',      // 'endless' | 'level'
+  level: 1, target: 0, cleared: {},
+  active: 10, reg: regionOf(10),  // 开放区边长与范围
+  goal: null,           // 关卡收集目标：{ 宝石索引: { need, got } }
+  beadGot: 0,           // 当前图样已攒的拼豆数
+  beadDone: {},         // 已合成图样：{ '图样索引': true }
+  albumPage: 0,         // 图鉴当前分页（0-7）
+  board: [], pieces: [], score: 0, bestEndless: 0, bestLevel: 0,
+  drag: -1, pos: { x: 0, y: 0 }, over: false, msg: '', result: '', // '' | 'win' | 'lose'
+  items: [0, 0, 0], snap: null, lastDaily: '',
+  adUsed: 0, adLimit: 10,   // 每局看广告次数（含复活/补道具），新局重置
+  pendingAd: null       // {type:'item',item:i} | {type:'reduce'} | {type:'revive'} | null
+};
+
+// ---------- 存档 ----------
+function loadSave() {
+  try {
+    S.bestEndless = wx.getStorageSync('bestEndless') || 0;
+    S.bestLevel = wx.getStorageSync('bestLevel') || 0;
+    S.cleared = wx.getStorageSync('cleared') || {};
+    S.lastDaily = wx.getStorageSync('lastDaily') || '';
+    S.beadGot = wx.getStorageSync('beadGot') || 0;
+    S.beadDone = wx.getStorageSync('beadDone') || {};
+  } catch (e) { /* 首次无存档 */ }
+}
+function saveBest() {
+  try {
+    if (S.mode === 'endless') {
+      if (S.score > S.bestEndless) {
+        S.bestEndless = S.score;
+        wx.setStorageSync('bestEndless', S.bestEndless);
+        uploadScore();  // 同步到好友榜
+      }
+    } else {
+      if (S.score > S.bestLevel) { S.bestLevel = S.score; wx.setStorageSync('bestLevel', S.bestLevel); }
+    }
+  } catch (e) { /* 存储失败不影响游戏 */ }
+}
+function saveCleared() {
+  try { wx.setStorageSync('cleared', S.cleared); } catch (e) { /* 忽略 */ }
+}
+
+// ---------- 关卡收集目标 ----------
+// L1-4 无收集；L5-10 抽2-3种每种20颗；L11+ 抽4-6种每种30颗
+function makeGoal(n) {
+  const t = tierOf(n);
+  if (t === 0) return null;
+  const kinds = t === 1 ? 2 + Math.floor(Math.random() * 2)   // 2~3
+                        : 4 + Math.floor(Math.random() * 3);  // 4~6
+  const need = t === 1 ? 20 : 30;
+  const pool = shuffleArr([0, 1, 2, 3, 4, 5]);
+  const goal = {};
+  for (let i = 0; i < kinds; i++) goal[pool[i]] = { need: need, got: 0 };
+  return goal;
+}
+function goalComplete() {
+  if (!S.goal) return true;
+  for (const k in S.goal) if (S.goal[k].got < S.goal[k].need) return false;
+  return true;
+}
+function cloneGoal(src) {
+  const g = {};
+  for (const k in src) g[k] = { need: src[k].need, got: src[k].got };
+  return g;
+}
+function resetGoalProgress(src) {
+  if (!src) return null;
+  const g = {};
+  for (const k in src) g[k] = { need: src[k].need, got: 0 };
+  return g;
+}
+
+// ---------- 玩法逻辑 ----------
+function shuffleArr(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+function shapeW(shape) { return Math.max.apply(null, shape.map(c => c[0])) + 1; }
+function shapeH(shape) { return Math.max.apply(null, shape.map(c => c[1])) + 1; }
+// 每格自带颜色：闯关=同一块上 2~3 种不同宝石；无尽=整块单色普通方块
+// 候选池先过滤：宽高不超开放区；L1-4 练习区再限 ≤4 格（排除 1×5 / 3×3 / 闪电阶梯）
+function eligibleShapes() {
+  const maxCells = (S.mode === 'level' && tierOf(S.level) === 0) ? 4 : 99;
+  return SHAPES.filter(s => shapeW(s) <= S.active && shapeH(s) <= S.active && s.length <= maxCells);
+}
+function randPiece() {
+  const pool = eligibleShapes();
+  const shape = pool[Math.floor(Math.random() * pool.length)] || SHAPES[0];
+  const k = shape.length;
+  let cis;
+  if (S.mode === 'level') {
+    const kinds = Math.min(k, 2 + Math.floor(Math.random() * 2)); // 2 或 3 种；单格块 1 种
+    const gemPool = shuffleArr([0, 1, 2, 3, 4, 5]).slice(0, kinds);
+    cis = [];
+    for (let i = 0; i < k; i++) cis.push(gemPool[i % kinds]);
+    shuffleArr(cis);
+  } else {
+    const ci = Math.floor(Math.random() * COLORS.length);
+    cis = shape.map(() => ci);
+  }
+  return { cells: shape.map((c, i) => [c[0], c[1], cis[i]]), used: false };
+}
+function cellCI(p, c) {
+  if (c.length >= 3 && c[2] >= 0 && c[2] < COLORS.length) return c[2];
+  return Math.max(0, COLORS.indexOf(p.color)); // 兼容旧存档
+}
+function canPlace(cells, x0, y0) {
+  for (const c of cells) {
+    const x = x0 + c[0], y = y0 + c[1];
+    if (!inRegion(x, y, S.reg)) return false;
+    if (S.board[y][x] !== EMPTY) return false;
+  }
+  return true;
+}
+function checkOver() {
+  for (const p of S.pieces) {
+    if (p.used) continue;
+    for (let y = S.reg.s; y < S.reg.e; y++) for (let x = S.reg.s; x < S.reg.e; x++) {
+      if (canPlace(p.cells, x, y)) return false;
+    }
+  }
+  return true;
+}
+function spawn() {
+  S.pieces = [randPiece(), randPiece(), randPiece()];
+  S.over = checkOver();
+  if (S.over) S.msg = '游戏结束！';
+}
+// 满行/满列只在开放区内判定；锁区不可消除；收集目标宝石给额外积分
+function clearLines() {
+  const reg = S.reg, rows = [], cols = [];
+  for (let y = reg.s; y < reg.e; y++) {
+    let full = true;
+    for (let x = reg.s; x < reg.e; x++) if (S.board[y][x] < 0) { full = false; break; }
+    if (full) rows.push(y);
+  }
+  for (let x = reg.s; x < reg.e; x++) {
+    let full = true;
+    for (let y = reg.s; y < reg.e; y++) if (S.board[y][x] < 0) { full = false; break; }
+    if (full) cols.push(x);
+  }
+
+  let collected = 0;
+  if (S.mode === 'level' && S.goal) {
+    const seen = {};
+    const mark = (x, y) => {
+      const key = y * N + x;
+      if (seen[key]) return;
+      seen[key] = 1;
+      const v = S.board[y][x];
+      if (v >= 0 && S.goal[v]) {
+        S.goal[v].got = Math.min(S.goal[v].need, S.goal[v].got + 1);
+        collected++;
+      }
+    };
+    for (const y of rows) for (let x = reg.s; x < reg.e; x++) mark(x, y);
+    for (const x of cols) for (let y = reg.s; y < reg.e; y++) mark(x, y);
+  }
+
+  for (const y of rows) for (let x = reg.s; x < reg.e; x++) S.board[y][x] = EMPTY;
+  for (const x of cols) for (let y = reg.s; y < reg.e; y++) S.board[y][x] = EMPTY;
+  const n = rows.length + cols.length;
+  if (n) {
+    S.score += n * 10 + collected * COLLECT_BONUS;
+    S.msg = collected > 0
+      ? '消除 ' + n + ' 条！收集 ' + collected + ' 颗 +' + (collected * COLLECT_BONUS) + ' 分'
+      : '漂亮！消除 ' + n + ' 条！';
+  }
+}
+// 开局预置方块：在开放区内摆随机形状组合、带宝石色、可被正常消除
+function placeObstacles(count) {
+  const reg = S.reg, budget = count * 3;
+  let used = 0, placed = 0, guard = 0;
+  while (placed < count && used < budget && guard++ < 800) {
+    const shape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+    if (shapeW(shape) > reg.size || shapeH(shape) > reg.size) continue;
+    if (used + shape.length > budget) continue;
+    const ox = reg.s + Math.floor(Math.random() * (reg.size - shapeW(shape) + 1));
+    const oy = reg.s + Math.floor(Math.random() * (reg.size - shapeH(shape) + 1));
+    if (!canPlace(shape, ox, oy)) continue;
+    const kinds = Math.min(shape.length, 2 + Math.floor(Math.random() * 2));
+    const pool = shuffleArr([0, 1, 2, 3, 4, 5]).slice(0, kinds);
+    for (let i = 0; i < shape.length; i++) {
+      S.board[oy + shape[i][1]][ox + shape[i][0]] = pool[i % kinds];
+    }
+    used += shape.length;
+    placed++;
+  }
+}
+// 快照不含 items（防还原刷道具）；收集进度深拷贝（防还原丢进度）
+function saveSnap() {
+  S.snap = {
+    board: S.board.map(r => r.slice()),
+    pieces: S.pieces.map(p => ({ cells: p.cells.map(c => c.slice()), color: p.color, used: p.used })),
+    score: S.score, over: S.over, msg: S.msg,
+    goal: S.goal ? cloneGoal(S.goal) : null
+  };
+}
+function restoreSnap() {
+  if (!S.snap) return false;
+  const s = S.snap;
+  S.board = s.board; S.pieces = s.pieces;
+  S.score = s.score; S.over = s.over; S.msg = s.msg;
+  if (s.goal) S.goal = cloneGoal(s.goal);
+  S.snap = null;
+  return true;
+}
+function today() {
+  const d = new Date();
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+}
+function grantItems() {
+  S.items = [0, 0, 0];
+  S.snap = null;
+  S.items[Math.floor(Math.random() * 3)] = 1;
+  const t = today();
+  if (S.lastDaily !== t) {
+    S.lastDaily = t;
+    try { wx.setStorageSync('lastDaily', t); } catch (e) { /* 忽略 */ }
+    S.items[Math.floor(Math.random() * 3)] += 1;
+    S.msg = '每日奖励！额外获得 1 个道具～';
+  }
+}
+function startEndless() {
+  S.mode = 'endless'; S.scene = 'play'; S.level = 0; S.target = 0;
+  S.goal = null;
+  S.active = 10; S.reg = regionOf(10);
+  S.board = Array.from({ length: N }, () => Array(N).fill(EMPTY));
+  S.score = 0; S.drag = -1; S.over = false; S.result = ''; S.pendingAd = null;
+  S.adUsed = 0; // 每局重置广告次数
+  S.msg = '拖动方块，尽量拿高分！';
+  grantItems(); spawn();
+}
+function startLevel(n) {
+  S.mode = 'level'; S.scene = 'play'; S.level = n;
+  S.target = levelTarget(n);
+  S.goal = makeGoal(n);
+  S.active = activeSizeOf(n); S.reg = regionOf(S.active);
+  S.board = Array.from({ length: N }, () => Array(N).fill(LOCKED));
+  for (let y = S.reg.s; y < S.reg.e; y++) for (let x = S.reg.s; x < S.reg.e; x++) S.board[y][x] = EMPTY;
+  placeObstacles(obstacleCountOf(n));
+  S.score = 0; S.drag = -1; S.over = false; S.result = ''; S.pendingAd = null;
+  const t = tierOf(n);
+  if (t === 0) S.msg = '初级练习：填满行或列拿分！';
+  else if (t === 1) S.msg = '收集 ' + Object.keys(S.goal).length + ' 种宝石，达成分数线过关！';
+  else S.msg = '收集 + 消除，突破分数线过关！';
+  grantItems(); spawn();
+}
+function toMenu() {
+  S.scene = 'menu'; S.drag = -1; S.pendingAd = null; S.over = false; S.result = '';
+}
+function place(idx, x0, y0) {
+  const p = S.pieces[idx];
+  if (!canPlace(p.cells, x0, y0)) { S.msg = '这里放不下，再试一次！'; return; }
+  saveSnap();
+  for (const c of p.cells) S.board[y0 + c[1]][x0 + c[0]] = cellCI(p, c);
+  S.score += p.cells.length;
+  p.used = true;
+  clearLines();
+  saveBest();
+  // 通关双条件：分数线 + 收集进度
+  if (S.mode === 'level' && S.score >= S.target && goalComplete()) { doWin(); return; }
+  if (S.pieces.every(q => q.used)) spawn();
+  else S.over = checkOver();
+  if (S.over) doLose();
+  else if (S.msg.indexOf('消除') < 0) S.msg = '太棒了！继续加油！';
+}
+// 当前正在收集的图样索引 = 已合成数量
+function currentBeadIdx() {
+  let n = 0;
+  for (let i = 0; i < BEAD_TOTAL; i++) if (S.beadDone[i]) n++;
+  return n;
+}
+function beadPerLevel(n) {
+  const t = tierOf(n);
+  return t === 0 ? 5 : t === 1 ? 10 : 15;   // L1-4:+5 L5-10:+10 L11+:+15
+}
+// 首通过关发拼豆：按难度给豆，攒满 100 自动合成当前图样
+function grantBeads(n) {
+  if (currentBeadIdx() >= BEAD_TOTAL) return;  // 全部图样已集齐
+  const add = beadPerLevel(n);
+  S.beadGot += add;
+  const doneIdx = currentBeadIdx();
+  const doneName = BEADS[doneIdx] ? BEADS[doneIdx].name : '';
+  if (S.beadGot >= BEAD_NEED) {
+    S.beadGot -= BEAD_NEED;
+    S.beadDone[doneIdx] = true;
+    try {
+      wx.setStorageSync('beadGot', S.beadGot);
+      wx.setStorageSync('beadDone', S.beadDone);
+    } catch (e) { /* 忽略 */ }
+    S.items[0] += 1; S.items[1] += 1; S.items[2] += 1;  // 合成奖励：道具 ×3
+    const pageDone = (doneIdx + 1) % BEAD_PAGES[0].patterns.length === 0; // 每 8 个成一整篇
+    if (pageDone) {
+      for (let i = 0; i < 5; i++) S.items[i % 3] += 1;   // 集齐一篇额外道具 ×5
+      S.msg = '合成「' + doneName + '」！' + BEAD_PAGES[BEADS[doneIdx].page].name + '篇集齐，道具 ×8！';
+    } else {
+      S.msg = '合成「' + doneName + '」！道具 ×3，继续收集下一图样～';
+    }
+  } else {
+    try { wx.setStorageSync('beadGot', S.beadGot); } catch (e) { /* 忽略 */ }
+    S.msg = '过关！拼豆 +' + add + '（' + S.beadGot + '/' + BEAD_NEED + '）';
+  }
+}
+function doWin() {
+  S.result = 'win'; S.over = false; S.drag = -1;
+  const key = 'L' + S.level;
+  if (!S.cleared[key]) { // 首通奖励
+    S.cleared[key] = true;
+    saveCleared();
+    S.items[Math.floor(Math.random() * 3)] += 1;
+    grantBeads(S.level);
+  } else S.msg = '过关！';
+}
+function doLose() {
+  S.result = 'lose'; S.over = true; S.drag = -1; S.msg = '游戏结束！';
+  if (S.mode === 'endless') uploadScore(); // 死局也上传最终分数
+}
+// 无尽模式看广告复活：清掉一半已占格，分数不清，继续本局
+function reviveHalf() {
+  const cells = [];
+  for (let y = S.reg.s; y < S.reg.e; y++) for (let x = S.reg.s; x < S.reg.e; x++) {
+    if (S.board[y][x] !== EMPTY) cells.push([x, y]);
+  }
+  cells.sort((a, b) => {
+    const open = (p) => {
+      let n = 0;
+      if (p[1] > S.reg.s && S.board[p[1] - 1][p[0]] === EMPTY) n++;
+      if (p[1] < S.reg.e - 1 && S.board[p[1] + 1][p[0]] === EMPTY) n++;
+      if (p[0] > S.reg.s && S.board[p[1]][p[0] - 1] === EMPTY) n++;
+      if (p[0] < S.reg.e - 1 && S.board[p[1]][p[0] + 1] === EMPTY) n++;
+      return n;
+    };
+    return open(b) - open(a);
+  });
+  const half = Math.ceil(cells.length / 2);
+  for (let i = 0; i < half; i++) S.board[cells[i][1]][cells[i][0]] = EMPTY;
+  S.over = checkOver();
+  if (S.over) spawn();
+  S.result = ''; S.over = false; S.drag = -1; S.pendingAd = null;
+  S.msg = '复活成功！清掉半盘，继续努力～';
+}
+// 看广告降目标：×0.8（有下限），重开本关；目标宝石种类保留、进度清零
+function reduceTargetAndRetry() {
+  const floor = Math.floor(levelTarget(S.level) * 0.5);
+  const newTarget = Math.max(floor, Math.floor(S.target * 0.8));
+  const keptGoal = S.goal;
+  startLevel(S.level);
+  S.target = newTarget;
+  S.goal = resetGoalProgress(keptGoal);
+  S.msg = '目标已降低至 ' + S.target + ' 分！';
+}
+// 重试本关：保留已降低的目标与目标宝石，避免玩家「广告白看」
+function retryLevel() {
+  const kept = S.target, keptGoal = S.goal;
+  startLevel(S.level);
+  S.target = kept;
+  S.goal = resetGoalProgress(keptGoal);
+}
+// 大槌子：敲开放区里周围空格最多的已填格，分数不变
+function hammerBest() {
+  let bx = -1, by = -1, bestOpen = -1;
+  for (let y = S.reg.s; y < S.reg.e; y++) for (let x = S.reg.s; x < S.reg.e; x++) {
+    if (S.board[y][x] === EMPTY) continue;
+    let open = 0;
+    if (y > S.reg.s && S.board[y - 1][x] === EMPTY) open++;
+    if (y < S.reg.e - 1 && S.board[y + 1][x] === EMPTY) open++;
+    if (x > S.reg.s && S.board[y][x - 1] === EMPTY) open++;
+    if (x < S.reg.e - 1 && S.board[y][x + 1] === EMPTY) open++;
+    if (open > bestOpen) { bestOpen = open; bx = x; by = y; }
+  }
+  return { x: bx, y: by };
+}
+function refreshPieces() {
+  for (let i = 0; i < S.pieces.length; i++) if (!S.pieces[i].used) S.pieces[i] = randPiece();
+  S.over = checkOver();
+  if (S.over) doLose();
+}
+function useItem(i) {
+  if (S.result || S.over) return;
+  if (S.items[i] <= 0) {
+    requestAd({ type: 'item', item: i }); // 模拟广告 TODO: 有流量主后接真 SDK
+    return;
+  }
+  if (i === I_UNDO) {
+    if (!S.snap) { S.msg = '还没有可以还原的步骤'; draw(); return; }
+    S.items[i] -= 1; restoreSnap(); S.msg = '已还原上一手～';
+  } else if (i === I_HAMMER) {
+    const t = hammerBest();
+    if (t.x < 0) { S.msg = '棋盘上没有可敲的方块'; draw(); return; }
+    saveSnap(); S.items[i] -= 1; S.board[t.y][t.x] = EMPTY; S.msg = '大槌子敲掉一格！';
+  } else if (i === I_REFRESH) {
+    if (S.pieces.every(p => p.used)) { S.msg = '没有可刷新的方块'; draw(); return; }
+    saveSnap(); S.items[i] -= 1; refreshPieces();
+    if (!S.over) S.msg = '方块已刷新！';
+  }
+  draw();
+}
+
+// ---------- 绘制基础 ----------
+// tracking>0 时逐字绘制并加字距（标题用），num 用数字字体（分数用）
+function text(s, x, y, size, color, weight, tracking, num) {
+  ctx.fillStyle = color;
+  const fam = num ? FONT.num : FONT.family;
+  const font = (weight ? weight + ' ' : '') + size + 'px ' + fam;
+  ctx.font = font;
+  if (tracking) {
+    let cx = x;
+    for (const ch of String(s)) { ctx.fillText(ch, cx, y); cx += ctx.measureText(ch).width + tracking; }
+  } else ctx.fillText(String(s), x, y);
+}
+// 右对齐文字：按实测宽度把起点左移，避免数量顶出按钮右缘
+function textRight(s, rightX, y, size, color, weight, num) {
+  ctx.font = (weight ? weight + ' ' : '') + size + 'px ' + (num ? FONT.num : FONT.family);
+  text(s, rightX - ctx.measureText(String(s)).width, y, size, color, weight, 0, num);
+}
+// 按钮文字自动缩放：太宽就降字号，保证不溢出按钮（下限 11px）
+function fitLabel(label, size, weight, maxW) {
+  let s = size;
+  ctx.font = (weight ? weight + ' ' : '') + s + 'px ' + FONT.family;
+  while (s > 11 && ctx.measureText(label).width > maxW) {
+    s -= 1;
+    ctx.font = (weight ? weight + ' ' : '') + s + 'px ' + FONT.family;
+  }
+  return s;
+}
+function roundRectPath(c, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.lineTo(x + w - r, y);
+  c.quadraticCurveTo(x + w, y, x + w, y + r);
+  c.lineTo(x + w, y + h - r);
+  c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  c.lineTo(x + r, y + h);
+  c.quadraticCurveTo(x, y + h, x, y + h - r);
+  c.lineTo(x, y + r);
+  c.quadraticCurveTo(x, y, x + r, y);
+  c.closePath();
+}
+// 统一卡片：白底 + 细描边 + 单层精准阴影（不堆叠高光）
+function panel(x, y, w, h, fill, border) {
+  ctx.save();
+  ctx.shadowColor = UI.shadow; ctx.shadowBlur = 16; ctx.shadowOffsetY = 4;
+  ctx.fillStyle = fill || UI.surface;
+  roundRectPath(ctx, x, y, w, h, 14); ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = border || UI.outline; ctx.lineWidth = 1.5;
+  roundRectPath(ctx, x + 0.75, y + 0.75, w - 1.5, h - 1.5, 14); ctx.stroke();
+}
+// 统一按钮：filled / tonal / outlined 三态，只用一种绘制语言
+function button(x, y, w, h, variant, label, size, align) {
+  let bg = UI.primary, fg = '#FFFFFF', bd = UI.primary;
+  if (variant === 'tonal') { bg = UI.primarySoft; fg = UI.primaryDeep; bd = UI.primarySoft; }
+  else if (variant === 'outlined') { bg = UI.surface; fg = UI.primaryDeep; bd = UI.outline; }
+  ctx.save();
+  ctx.shadowColor = UI.shadow; ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+  ctx.fillStyle = bg;
+  roundRectPath(ctx, x, y, w, h, 12); ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = bd; ctx.lineWidth = 1.2;
+  roundRectPath(ctx, x + 0.6, y + 0.6, w - 1.2, h - 1.2, 12); ctx.stroke();
+  ctx.save();
+  const weight = size >= 22 ? '600' : '';
+  const fs = fitLabel(label, size, weight, w - 24);
+  ctx.textAlign = align === 'left' ? 'left' : 'center'; ctx.textBaseline = 'middle';
+  ctx.font = (weight ? weight + ' ' : '') + fs + 'px ' + FONT.family;
+  ctx.fillStyle = fg;
+  ctx.fillText(label, align === 'left' ? x + 16 : x + w / 2, y + h / 2 + 1);
+  ctx.restore();
+}
+
+// ---------- 6 款宝石（保留立体质感，阴影收敛） ----------
+const gemCache = {};
+function gemSprite(ci) {
+  const key = 'gem' + ci;
+  if (gemCache[key]) return gemCache[key];
+  const SZ = 96, P = 5, R = 18;
+  const cv = wx.createCanvas();
+  cv.width = SZ; cv.height = SZ;
+  const g = cv.getContext('2d');
+  const gem = GEMS[ci];
+
+  g.save();
+  g.shadowColor = 'rgba(46,44,41,0.26)';
+  g.shadowBlur = 8; g.shadowOffsetY = 3;
+  const body = g.createLinearGradient(0, 0, SZ, SZ);
+  body.addColorStop(0, gem.light);
+  body.addColorStop(0.5, gem.base);
+  body.addColorStop(1, gem.dark);
+  g.fillStyle = body;
+  roundRectPath(g, P, P, SZ - P * 2, SZ - P * 2, R);
+  g.fill();
+  g.restore();
+
+  g.save();
+  roundRectPath(g, P + 3, P + 3, SZ - (P + 3) * 2, SZ - (P + 3) * 2, R - 3);
+  g.clip();
+  const hg = g.createLinearGradient(0, P, 0, 48);
+  hg.addColorStop(0, 'rgba(255,255,255,0.62)');
+  hg.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = hg; g.fillRect(P, P, SZ - P * 2, 48);
+  const sg = g.createLinearGradient(0, 56, 0, SZ - P);
+  sg.addColorStop(0, 'rgba(0,0,0,0)');
+  sg.addColorStop(1, 'rgba(60,48,40,0.22)');
+  g.fillStyle = sg; g.fillRect(P, 56, SZ - P * 2, SZ - P - 56);
+
+  g.strokeStyle = 'rgba(255,255,255,0.50)'; g.lineWidth = 2.2;
+  g.beginPath();
+  g.moveTo(48, 12); g.lineTo(84, 48); g.lineTo(48, 84); g.lineTo(12, 48); g.closePath(); g.stroke();
+  g.beginPath();
+  g.moveTo(12, 48); g.lineTo(84, 48); g.moveTo(48, 12); g.lineTo(48, 84); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,0.28)';
+  g.beginPath();
+  g.moveTo(48, 28); g.lineTo(66, 48); g.lineTo(48, 68); g.lineTo(30, 48); g.closePath(); g.fill();
+  g.fillStyle = 'rgba(255,255,255,0.92)';
+  g.beginPath(); g.arc(31, 29, 6, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(255,255,255,0.55)';
+  g.beginPath(); g.arc(62, 62, 3, 0, Math.PI * 2); g.fill();
+  g.restore();
+
+  g.strokeStyle = gem.dark; g.lineWidth = 2;
+  roundRectPath(g, P + 1, P + 1, SZ - (P + 1) * 2, SZ - (P + 1) * 2, R - 1);
+  g.stroke();
+  gemCache[key] = cv;
+  return cv;
+}
+function drawGem(ci, x, y, size, alpha) {
+  if (alpha != null) ctx.globalAlpha = alpha;
+  ctx.drawImage(gemSprite(ci), x, y, size, size);
+  if (alpha != null) ctx.globalAlpha = 1;
+}
+// 无尽模式的普通方块：圆角平涂＋单道柔光，不用宝石切面
+const blockCache = {};
+function blockSprite(ci) {
+  const key = 'blk' + ci;
+  if (blockCache[key]) return blockCache[key];
+  const SZ = 96, P = 4, R = 16;
+  const cv = wx.createCanvas(); cv.width = SZ; cv.height = SZ;
+  const g = cv.getContext('2d');
+  const c = COLORS[ci];
+  g.save();
+  g.shadowColor = 'rgba(46,44,41,0.14)'; g.shadowBlur = 6; g.shadowOffsetY = 2;
+  g.fillStyle = c;
+  roundRectPath(g, P, P, SZ - P * 2, SZ - P * 2, R); g.fill();
+  g.restore();
+  g.save();
+  roundRectPath(g, P, P, SZ - P * 2, SZ - P * 2, R); g.clip();
+  const hg = g.createLinearGradient(0, P, 0, 40);
+  hg.addColorStop(0, 'rgba(255,255,255,0.34)');
+  hg.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = hg; g.fillRect(P, P, SZ - P * 2, 40);
+  g.restore();
+  g.strokeStyle = 'rgba(0,0,0,0.08)'; g.lineWidth = 1.6;
+  roundRectPath(g, P + 1, P + 1, SZ - (P + 1) * 2, SZ - (P + 1) * 2, R - 1); g.stroke();
+  blockCache[key] = cv;
+  return cv;
+}
+function drawBlock(ci, x, y, size, alpha) {
+  if (alpha != null) ctx.globalAlpha = alpha;
+  ctx.drawImage(blockSprite(ci), x, y, size, size);
+  if (alpha != null) ctx.globalAlpha = 1;
+}
+// 按当前模式渲染单格：闯关=宝石，无尽=普通方块
+function drawCellOf(p, c, x, y, size, alpha) {
+  const ci = cellCI(p, c);
+  if (S.mode === 'level') drawGem(ci, x, y, size, alpha);
+  else drawBlock(ci, x, y, size, alpha);
+}
+function drawBoardCell(ci, x, y, size) {
+  if (S.mode === 'level') drawGem(ci, x, y, size);
+  else drawBlock(ci, x, y, size);
+}
+
+// ---------- 道具图标 ----------
+function iconHammer(x, y, s, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.lineWidth = s * 0.16;
+  ctx.beginPath(); ctx.moveTo(x + s * 0.30, y + s * 0.82); ctx.lineTo(x + s * 0.66, y + s * 0.40); ctx.stroke();
+  ctx.save();
+  ctx.translate(x + s * 0.68, y + s * 0.34); ctx.rotate(-Math.PI / 4);
+  roundRectPath(ctx, -s * 0.28, -s * 0.14, s * 0.56, s * 0.28, s * 0.06); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+function iconUndo(x, y, s, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth = s * 0.13; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(x + s * 0.5, y + s * 0.5, s * 0.30, Math.PI * 0.75, Math.PI * 1.95); ctx.stroke();
+  const ax = x + s * 0.5 + s * 0.30 * Math.cos(Math.PI * 0.75);
+  const ay = y + s * 0.5 + s * 0.30 * Math.sin(Math.PI * 0.75);
+  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + s * 0.20, ay - s * 0.02); ctx.lineTo(ax + s * 0.02, ay + s * 0.20); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function iconRefresh(x, y, s, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth = s * 0.13; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(x + s * 0.5, y + s * 0.5, s * 0.30, -Math.PI * 0.2, Math.PI * 1.05); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x + s * 0.5, y + s * 0.5, s * 0.30, Math.PI * 0.8, Math.PI * 2.05); ctx.stroke();
+  const ax = x + s * 0.5 + s * 0.30 * Math.cos(Math.PI * 1.05);
+  const ay = y + s * 0.5 + s * 0.30 * Math.sin(Math.PI * 1.05);
+  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + s * 0.18, ay + s * 0.06); ctx.lineTo(ax + s * 0.02, ay - s * 0.19); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawItemIcon(i, x, y, s, color) {
+  if (i === I_HAMMER) iconHammer(x, y, s, color);
+  else if (i === I_UNDO) iconUndo(x, y, s, color);
+  else iconRefresh(x, y, s, color);
+}
+// 道具按钮：左侧图标 + 右侧名称与数量
+function itemButton(i, x, y, w, h, on) {
+  const bg = on ? UI.surface : UI.itemOff;
+  const bd = on ? UI.outline : UI.itemOff;
+  const fg = on ? UI.primaryDeep : UI.itemOffText;
+  panel(x, y, w, h, bg, bd);
+  drawItemIcon(i, x + 12, y + 12, 24, fg);
+  text(ITEM_NAMES[i], x + 46, y + 21, 17, fg, '600');
+  textRight('×' + S.items[i], x + w - 14, y + 35, 13, fg);
+}
+
+// ---------- 局内导航图标按钮 ----------
+function iconRetry(x, y, s, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  const cx = x + s / 2, cy = y + s / 2, r = s * 0.28;
+  ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI * 0.7, Math.PI * 0.85); ctx.stroke();
+  const ax = cx + r * Math.cos(Math.PI * 0.85), ay = cy + r * Math.sin(Math.PI * 0.85);
+  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax - 5, ay - 5); ctx.lineTo(ax + 4, ay - 6); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function iconHome(x, y, s, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  const cx = x + s / 2, cy = y + s / 2, r = s * 0.26;
+  ctx.beginPath();
+  ctx.moveTo(cx - r, cy); ctx.lineTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx - r * 0.72, cy + r * 0.1); ctx.lineTo(cx - r * 0.72, cy + r * 0.85);
+  ctx.lineTo(cx + r * 0.72, cy + r * 0.85); ctx.lineTo(cx + r * 0.72, cy + r * 0.1); ctx.stroke();
+  ctx.restore();
+}
+function navButton(kind, x, y) {
+  panel(x, y, 40, 40, UI.surface, UI.outline);
+  if (kind === 'retry') iconRetry(x, y, 40, UI.onSurfaceVar);
+  else iconHome(x, y, 40, UI.onSurfaceVar);
+}
+
+// ---------- 棋盘与碎片 ----------
+function cellSlot(px, py) {
+  ctx.fillStyle = UI.surfaceLow;
+  roundRectPath(ctx, px, py, CELL, CELL, 8); ctx.fill();
+}
+// 锁区灰色裂纹石块：比可玩区明显更深，一眼看出哪些格子不能放
+function drawLockedRock(px, py) {
+  const x = px + 2, y = py + 2, w = CELL - 4, h = CELL - 4;
+  ctx.save();
+  const g = ctx.createLinearGradient(x, y, x + w, y + h);
+  g.addColorStop(0, UI.rockLight);
+  g.addColorStop(1, UI.rockDark);
+  ctx.fillStyle = g;
+  roundRectPath(ctx, x, y, w, h, 8); ctx.fill();
+  ctx.restore();
+  ctx.save();
+  roundRectPath(ctx, x, y, w, h, 8); ctx.clip();
+  ctx.strokeStyle = UI.rockCrack; ctx.lineWidth = 1.8;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(px + CELL * 0.20, py + CELL * 0.16);
+  ctx.lineTo(px + CELL * 0.52, py + CELL * 0.40);
+  ctx.lineTo(px + CELL * 0.36, py + CELL * 0.64);
+  ctx.lineTo(px + CELL * 0.64, py + CELL * 0.88);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(px + CELL * 0.52, py + CELL * 0.40);
+  ctx.lineTo(px + CELL * 0.80, py + CELL * 0.30);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.26)';
+  ctx.fillRect(x, y, w, 4);
+  ctx.restore();
+  ctx.strokeStyle = UI.rockDark; ctx.lineWidth = 1.1;
+  roundRectPath(ctx, x + 0.55, y + 0.55, w - 1.1, h - 1.1, 8); ctx.stroke();
+}
+// 拼豆珠子精灵：圆形带高光，像真实拼豆（离屏缓存 6 色）
+const beadCache = {};
+function beadSprite(ci) {
+  const key = 'bead' + ci;
+  if (beadCache[key]) return beadCache[key];
+  const SZ = 64;
+  const cv = wx.createCanvas(); cv.width = SZ; cv.height = SZ;
+  const g = cv.getContext('2d');
+  const c = GEMS[ci];
+  const r = SZ / 2 - 3;
+  const cx = SZ / 2, cy = SZ / 2;
+  g.save();
+  g.shadowColor = 'rgba(46,44,41,0.22)'; g.shadowBlur = 4; g.shadowOffsetY = 2;
+  const rg = g.createLinearGradient(0, 0, 0, SZ);
+  rg.addColorStop(0, c.light); rg.addColorStop(1, c.base);
+  g.fillStyle = rg;
+  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+  g.restore();
+  // 中心凹孔（拼豆特征）
+  g.fillStyle = c.dark;
+  g.beginPath(); g.arc(cx, cy, r * 0.34, 0, Math.PI * 2); g.fill();
+  g.fillStyle = 'rgba(0,0,0,0.10)';
+  g.beginPath(); g.arc(cx, cy, r * 0.18, 0, Math.PI * 2); g.fill();
+  // 高光
+  g.fillStyle = 'rgba(255,255,255,0.72)';
+  g.beginPath(); g.arc(cx - r * 0.36, cy - r * 0.42, r * 0.18, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = c.dark; g.lineWidth = 1.4;
+  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
+  beadCache[key] = cv;
+  return cv;
+}
+function drawBead(ci, x, y, size, alpha) {
+  if (alpha != null) ctx.globalAlpha = alpha;
+  ctx.drawImage(beadSprite(ci), x, y, size, size);
+  if (alpha != null) ctx.globalAlpha = 1;
+}
+// 画图样：cells 为珠子列表，lit=点亮的珠子数（<cells.length 时用灰剪影补足）
+// mode: 'full' 全彩 | 'progress' 按 lit 点亮 | 'locked' 全灰剪影
+function drawBeadPattern(bp, x, y, size, lit, mode) {
+  const step = size / 10;
+  const total = bp.cells.length;
+  const show = mode === 'full' ? total : mode === 'locked' ? 0 : Math.floor((lit / BEAD_NEED) * total);
+  const grey = UI.outline;
+  for (let i = 0; i < total; i++) {
+    const cell = bp.cells[i];
+    const bx = x + cell.x * step, by = y + cell.y * step;
+    if (i < show) {
+      drawBead(cell.ci, bx, by, step + 0.6);
+    } else {
+      // 未点亮：淡灰小圆点，保留图样轮廓
+      ctx.fillStyle = mode === 'locked' ? '#EFEDE7' : grey;
+      ctx.beginPath();
+      ctx.arc(bx + step / 2, by + step / 2, step * 0.30, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function piece(p, cx, cy, unit) {
+  let minX = 99, maxX = -99, minY = 99, maxY = -99;
+  for (const c of p.cells) {
+    minX = Math.min(minX, c[0]); maxX = Math.max(maxX, c[0]);
+    minY = Math.min(minY, c[1]); maxY = Math.max(maxY, c[1]);
+  }
+  const sx = cx - (maxX - minX + 1) * unit / 2;
+  const sy = cy - (maxY - minY + 1) * unit / 2;
+  for (const c of p.cells) drawCellOf(p, c, sx + (c[0] - minX) * unit + 1, sy + (c[1] - minY) * unit + 1, unit - 2);
+}
+function snapOrigin(p, pos) {
+  let minX = 99, maxX = -99, minY = 99, maxY = -99;
+  for (const c of p.cells) {
+    minX = Math.min(minX, c[0]); maxX = Math.max(maxX, c[0]);
+    minY = Math.min(minY, c[1]); maxY = Math.max(maxY, c[1]);
+  }
+  const w = maxX - minX + 1, h = maxY - minY + 1;
+  const fx = (pos.x - BX) / (CELL + GAP), fy = (pos.y - BY) / (CELL + GAP);
+  return {
+    x: Math.round(fx - (w - 1) / 2) - minX,
+    y: Math.round(fy - (h - 1) / 2) - minY
+  };
+}
+function inBoard(pos) {
+  return pos.y >= BY - 20 && pos.y < BY + N * (CELL + GAP) + 10 &&
+         pos.x >= BX - 20 && pos.x < BX + N * (CELL + GAP) + 10;
+}
+function drawGhost(p, gx, gy, ok) {
+  for (const c of p.cells) {
+    const px = BX + (gx + c[0]) * (CELL + GAP), py = BY + (gy + c[1]) * (CELL + GAP);
+    if (px < BX || py < BY || px >= BX + N * (CELL + GAP) || py >= BY + N * (CELL + GAP)) continue;
+    drawCellOf(p, c, px, py, CELL, 0.55);
+    ctx.strokeStyle = ok ? UI.success : UI.error; ctx.lineWidth = 3;
+    roundRectPath(ctx, px + 1.5, py + 1.5, CELL - 3, CELL - 3, 8); ctx.stroke();
+  }
+}
+
+// ---------- 画面 ----------
+// 氛围背景：离屏缓存一次，顶部柔光 + 底部微晕，替代纯色平铺（不堆叠高光）
+let bgSprite = null;
+function backdrop() {
+  if (bgSprite) return bgSprite;
+  const cv = wx.createCanvas(); cv.width = DW; cv.height = DH;
+  const g = cv.getContext('2d');
+  g.fillStyle = UI.bg; g.fillRect(0, 0, DW, DH);
+  const top = g.createLinearGradient(0, 0, 0, 240);
+  top.addColorStop(0, UI.glow); top.addColorStop(1, 'rgba(250,249,246,0)');
+  g.fillStyle = top; g.fillRect(0, 0, DW, 240);
+  const bot = g.createRadialGradient(DW / 2, DH, 40, DW / 2, DH, 380);
+  bot.addColorStop(0, 'rgba(201,196,185,0.10)'); bot.addColorStop(1, 'rgba(250,249,246,0)');
+  g.fillStyle = bot; g.fillRect(0, DH - 420, DW, 420);
+  bgSprite = cv;
+  return cv;
+}
+function drawBackdrop() { ctx.drawImage(backdrop(), 0, 0, DW, DH); }
+
+function drawMenu() {
+  drawBackdrop();
+  text('宝石方块乐园', 32, 66, 30, UI.onSurface, '600', 1.5);
+  text('GEM BLOCK PARADISE', 34, 92, 12, UI.sub, '', 1.2);
+  for (let i = 0; i < 6; i++) drawGem(i, 150 + i * 40, 130, 30);
+
+  text('选 择 模 式', 34, 210, 15, UI.onSurfaceVar, '600');
+  panel(32, 226, 476, 118, UI.surface, UI.outline);
+  ctx.fillStyle = UI.primary; roundRectPath(ctx, 32, 226, 5, 118, 3); ctx.fill();
+  text('闯 关 模 式', 60, 274, 24, UI.onSurface, '600');
+  text('区域逐关扩大，收集＋分数线达标过关', 60, 308, 15, UI.onSurfaceVar);
+  panel(32, 358, 476, 118, UI.surface, UI.outline);
+  ctx.fillStyle = UI.primarySoft; roundRectPath(ctx, 32, 358, 5, 118, 3); ctx.fill();
+  text('无 尽 模 式', 60, 406, 24, UI.onSurface, '600');
+  text('死局可看广告复活，分数进好友榜', 60, 440, 15, UI.onSurfaceVar);
+
+  button(40, 496, 218, 48, 'outlined', '好友排行榜', 16);
+  button(282, 496, 218, 48, 'filled', '拼豆图鉴', 17);
+
+  // 当前拼豆收集进度卡
+  const idx = currentBeadIdx();
+  text('拼 豆 收 集', 34, 588, 15, UI.onSurfaceVar, '600');
+  panel(28, 600, 484, 116, UI.surface, UI.outline);
+  if (idx < BEAD_TOTAL) {
+    const bp = BEADS[idx];
+    drawBeadPattern(bp, 44, 612, 90, S.beadGot, 'progress');
+    text(bp.name, 152, 632, 20, UI.onSurface, '600');
+    text(BEAD_PAGES[bp.page].name + '篇 · 第 ' + (bp.slot + 1) + '/8 图样', 152, 660, 14, UI.onSurfaceVar);
+    // 进度条
+    const bw = 320, bx = 152, by = 680;
+    ctx.fillStyle = UI.surfaceLow; roundRectPath(ctx, bx, by, bw, 10, 5); ctx.fill();
+    ctx.fillStyle = UI.primary;
+    const pw = Math.max(4, Math.floor(bw * S.beadGot / BEAD_NEED));
+    roundRectPath(ctx, bx, by, pw, 10, 5); ctx.fill();
+    text(S.beadGot + ' / ' + BEAD_NEED, bx + bw + 8, by + 9, 13, UI.onSurfaceVar, '', 0, true);
+  } else {
+    text('✦ 全部图样已集齐！', 160, 660, 20, UI.primary, '600');
+  }
+  text('已合成 ' + idx + ' / ' + BEAD_TOTAL + '　·　无尽最高分 ' + S.bestEndless, 34, 748, 14, UI.hint);
+}
+// 拼豆图鉴：八篇分页，每页 8 个图样
+function drawAlbum() {
+  drawBackdrop();
+  text('拼豆图鉴', 32, 60, 26, UI.onSurface, '600', 1.2);
+  const idx = currentBeadIdx();
+  text('已合成 ' + idx + ' / ' + BEAD_TOTAL, 320, 60, 15, UI.onSurfaceVar, '', 0, true);
+
+  // 八篇分页标签（4 列 × 2 行）
+  for (let p = 0; p < BEAD_PAGES.length; p++) {
+    const tx = ALBUM_TAB.x0 + (p % ALBUM_TAB.cols) * (ALBUM_TAB.w + ALBUM_TAB.gap);
+    const ty = ALBUM_TAB.y0 + Math.floor(p / ALBUM_TAB.cols) * (ALBUM_TAB.h + ALBUM_TAB.gap);
+    const activeTab = p === S.albumPage;
+    button(tx, ty, ALBUM_TAB.w, ALBUM_TAB.h, activeTab ? 'filled' : 'outlined', BEAD_PAGES[p].name, 15);
+  }
+
+  // 当前篇的 8 个图样（2 列 × 4 行）
+  const page = S.albumPage;
+  const startIdx = page * 8;
+  const cardW = 232, cardH = 132, cgapX = 16, cgapY = 12;
+  const gx = 28, gy = 194;
+  for (let s = 0; s < 8; s++) {
+    const bi = startIdx + s;
+    if (bi >= BEAD_TOTAL) break;
+    const bp = BEADS[bi];
+    const cx = gx + (s % 2) * (cardW + cgapX);
+    const cy = gy + Math.floor(s / 2) * (cardH + cgapY);
+    const done = !!S.beadDone[bi];
+    const cur = bi === idx;
+    panel(cx, cy, cardW, cardH, UI.surface, cur ? UI.primary : UI.outline);
+    // 图样预览
+    drawBeadPattern(bp, cx + 14, cy + 20, 104, S.beadGot, done ? 'full' : cur ? 'progress' : 'locked');
+    // 名称与状态
+    text(bp.name, cx + 132, cy + 46, 19, done || cur ? UI.onSurface : UI.itemOffText, '600');
+    if (done) {
+      text('✓ 已合成', cx + 132, cy + 78, 14, UI.success, '600');
+    } else if (cur) {
+      text('收集中 ' + S.beadGot + '/' + BEAD_NEED, cx + 132, cy + 78, 14, UI.primary, '', 0, true);
+    } else {
+      text('未解锁', cx + 132, cy + 78, 14, UI.itemOffText);
+    }
+  }
+  button(160, 800, 220, 48, 'outlined', '返回', 17);
+}
+function drawRank() {
+  drawBackdrop();
+  text('好友排行榜', 32, 66, 28, UI.onSurface, '600', 1.2);
+  panel(28, 100, 484, 630, UI.surface, UI.outline);
+  if (sharedCanvas) {
+    try { ctx.drawImage(sharedCanvas, 30, 102, 480, 626); }
+    catch (e) { text('排行榜载入失败', 200, 400, 16, UI.hint); }
+  } else {
+    text('需正式 AppID 才能显示好友榜', 150, 400, 16, UI.hint);
+  }
+  button(160, 758, 220, 48, 'outlined', '返回', 17);
+}
+function drawGoalBar() {
+  if (S.mode !== 'level' || !S.goal) return;
+  const keys = Object.keys(S.goal).map(Number).sort((a, b) => a - b);
+  if (!keys.length) return;
+  const unit = keys.length >= 6 ? 82 : keys.length >= 4 ? 100 : 130;
+  let x = (DW - unit * keys.length) / 2 + 6;
+  for (const k of keys) {
+    const g = S.goal[k], done = g.got >= g.need;
+    ctx.globalAlpha = done ? 1 : 0.42;
+    drawGem(k, x, 164, 22);
+    ctx.globalAlpha = 1;
+    text(g.got + '/' + g.need, x + 2, 201, 13, done ? UI.primary : UI.onSurfaceVar, done ? '600' : '');
+    x += unit;
+  }
+}
+function drawHUD() {
+  drawBackdrop();
+  text('宝石方块乐园', 32, 50, 21, UI.onSurface, '600', 1.2);
+  const lvText = S.mode === 'level'
+    ? '第 ' + S.level + ' 关 · ' + S.active + '×' + S.active + ' 区'
+    : '无尽模式';
+  text(lvText, 34, 82, 14, UI.onSurfaceVar);
+  navButton('retry', 442, 18);
+  navButton('home', 490, 18);
+  ctx.strokeStyle = UI.outline; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(32, 102); ctx.lineTo(508, 102); ctx.stroke();
+
+  text('分数', 34, 132, 14, UI.onSurfaceVar);
+  text('' + S.score, 80, 134, 22, UI.onSurface, '600', 0, true);
+  const best = S.mode === 'level' ? S.bestLevel : S.bestEndless;
+  text('最高 ' + best, 190, 133, 14, UI.onSurfaceVar, '', 0, true);
+  if (S.mode === 'level') text('分数线 ' + S.target, 380, 133, 14, UI.primary, '600', 0, true);
+
+  drawGoalBar();
+  if (S.mode === 'endless') text('广告 ' + S.adUsed + '/' + S.adLimit, 34, 199, 13, UI.onSurfaceVar);
+  ctx.strokeStyle = UI.outline; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(32, 214); ctx.lineTo(508, 214); ctx.stroke();
+}
+function drawWin() {
+  ctx.fillStyle = UI.overlay; ctx.fillRect(0, 0, DW, DH);
+  panel(45, 330, 450, 290, UI.surface, UI.outline);
+  text('过 关', 60, 396, 34, UI.onSurface, '600');
+  text('第 ' + S.level + ' 关完成', 60, 436, 17, UI.onSurfaceVar);
+  text(S.msg, 60, 478, 15, UI.primary);
+  button(70, 545, 185, 52, 'filled', '下一关', 18);
+  button(285, 545, 185, 52, 'outlined', '回主画面', 17);
+}
+function drawLose() {
+  ctx.fillStyle = UI.overlay; ctx.fillRect(0, 0, DW, DH);
+  panel(35, 315, 470, 315, UI.surface, UI.outline);
+  text('游戏结束', 60, 380, 32, UI.onSurface, '600');
+  text('本次分数 ' + S.score, 60, 420, 17, UI.onSurfaceVar);
+  if (S.mode === 'level') text('分数线 ' + S.target, 60, 448, 15, UI.onSurfaceVar);
+  if (S.mode === 'level') {
+    button(48, 500, 138, 55, 'filled', '重试本关', 16);
+    button(196, 500, 148, 55, 'tonal', '看广告降目标', 14);
+    button(354, 500, 138, 55, 'outlined', '回主画面', 16);
+  } else {
+    const canAd = adAvailable();
+    button(48, 500, 138, 55, canAd ? 'filled' : 'outlined', '看广告复活', 14);
+    button(196, 500, 148, 55, 'filled', '失败重来', 16);
+    button(354, 500, 138, 55, 'outlined', '回主画面', 16);
+    if (!canAd) text('本局观看次数已用完', 150, 590, 14, UI.error);
+  }
+}
+function drawAdDialog() {
+  if (!S.pendingAd) return;
+  ctx.fillStyle = UI.overlay; ctx.fillRect(0, 0, DW, DH);
+  panel(50, 350, 440, 260, UI.surface, UI.outline);
+  const type = S.pendingAd.type;
+  const title = type === 'reduce' ? '观看广告降低分数线'
+              : type === 'revive' ? '观看广告复活续命' : '观看广告获得道具';
+  const sub = type === 'reduce' ? '本关分数线 -20%'
+            : type === 'revive' ? '清掉半盘，分数保留' : ITEM_NAMES[S.pendingAd.item] + ' ×1';
+  text(title, 76, 408, 22, UI.onSurface, '600');
+  text(sub, 76, 452, 16, UI.onSurfaceVar);
+  button(85, 520, 170, 56, 'filled', '观看广告', 17);
+  button(285, 520, 170, 56, 'outlined', '取消', 17);
+}
+function drawGame() {
+  drawHUD();
+  panel(BX - 8, BY - 8, 476, 476, UI.surface, UI.outline);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const px = BX + x * (CELL + GAP), py = BY + y * (CELL + GAP);
+    if (!inRegion(x, y, S.reg)) { drawLockedRock(px, py); continue; }
+    cellSlot(px, py);
+    const v = S.board[y][x];
+    if (v >= 0) drawBoardCell(v, px, py, CELL);
+  }
+  for (let i = 0; i < 3; i++) itemButton(i, ITEM_X[i], ITEM_Y, ITEM_W, ITEM_H, S.items[i] > 0);
+  text('选择方块，拖到棋盘', 34, 781, 14, UI.onSurfaceVar);
+  S.pieces.forEach((p, i) => { if (!p.used) piece(p, 90 + i * 180, TRAY, 19); });
+  if (S.drag >= 0) {
+    const p = S.pieces[S.drag];
+    if (inBoard(S.pos)) {
+      const o = snapOrigin(p, S.pos);
+      drawGhost(p, o.x, o.y, canPlace(p.cells, o.x, o.y));
+    } else piece(p, S.pos.x, S.pos.y, 25);
+  }
+  text(S.msg, 34, 915, 14, UI.onSurfaceVar);
+  if (S.result === 'win') drawWin();
+  else if (S.result === 'lose') drawLose();
+}
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = UI.bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * ox, dpr * oy);
+  if (S.scene === 'menu') drawMenu();
+  else if (S.scene === 'rank') drawRank();
+  else if (S.scene === 'album') drawAlbum();
+  else drawGame();
+  drawAdDialog();
+}
+
+// ---------- 触控 ----------
+function hit(x, y, x0, y0, w, h) { return x >= x0 && x <= x0 + w && y >= y0 && y <= y0 + h; }
+wx.onTouchStart(e => {
+  const t = toDesign(e.touches[0].clientX, e.touches[0].clientY);
+  // 广告弹窗优先
+  if (S.pendingAd) {
+    if (hit(t.x, t.y, 85, 520, 170, 56)) {
+      S.adUsed += 1; // 看完一次广告计数（模拟模式）
+      if (S.pendingAd.type === 'item') {
+        S.items[S.pendingAd.item] += 1;
+        S.msg = '获得 ' + ITEM_NAMES[S.pendingAd.item] + ' ×1！(模拟广告)';
+      } else if (S.pendingAd.type === 'reduce') reduceTargetAndRetry();
+      else if (S.pendingAd.type === 'revive') reviveHalf();
+    }
+    S.pendingAd = null;
+    draw(); return;
+  }
+  // 排行榜画面
+  if (S.scene === 'rank') {
+    if (hit(t.x, t.y, 160, 758, 220, 48)) { S.scene = 'menu'; draw(); }
+    return;
+  }
+  // 图鉴画面：八篇分页 + 返回
+  if (S.scene === 'album') {
+    for (let p = 0; p < BEAD_PAGES.length; p++) {
+      const tx = ALBUM_TAB.x0 + (p % ALBUM_TAB.cols) * (ALBUM_TAB.w + ALBUM_TAB.gap);
+      const ty = ALBUM_TAB.y0 + Math.floor(p / ALBUM_TAB.cols) * (ALBUM_TAB.h + ALBUM_TAB.gap);
+      if (hit(t.x, t.y, tx, ty, ALBUM_TAB.w, ALBUM_TAB.h)) { S.albumPage = p; break; }
+    }
+    if (hit(t.x, t.y, 160, 800, 220, 48)) { S.scene = 'menu'; }
+    draw(); return;
+  }
+  // 主画面
+  if (S.scene === 'menu') {
+    if (hit(t.x, t.y, 32, 226, 476, 118)) startLevel(1);
+    else if (hit(t.x, t.y, 32, 358, 476, 118)) startEndless();
+    else if (hit(t.x, t.y, 40, 496, 218, 48)) showRank();
+    else if (hit(t.x, t.y, 282, 496, 218, 48)) { S.scene = 'album'; }
+    draw(); return;
+  }
+  // 过关画面
+  if (S.result === 'win') {
+    if (hit(t.x, t.y, 70, 545, 185, 52)) startLevel(S.level + 1);
+    else if (hit(t.x, t.y, 285, 545, 185, 52)) toMenu();
+    draw(); return;
+  }
+  // 死局画面
+  if (S.result === 'lose') {
+    if (S.mode === 'level') {
+      if (hit(t.x, t.y, 48, 500, 138, 55)) retryLevel();
+      else if (hit(t.x, t.y, 196, 500, 148, 55)) requestAd({ type: 'reduce' });
+      else if (hit(t.x, t.y, 354, 500, 138, 55)) toMenu();
+    } else {
+      if (hit(t.x, t.y, 48, 500, 138, 55)) requestAd({ type: 'revive' });
+      else if (hit(t.x, t.y, 196, 500, 148, 55)) startEndless();
+      else if (hit(t.x, t.y, 354, 500, 138, 55)) toMenu();
+    }
+    draw(); return;
+  }
+  // 局内导航：重试 / 回主画面
+  if (hit(t.x, t.y, 442, 18, 40, 40)) {
+    if (S.mode === 'level') retryLevel(); else startEndless();
+    draw(); return;
+  }
+  if (hit(t.x, t.y, 490, 18, 40, 40)) { toMenu(); draw(); return; }
+  // 道具栏
+  if (t.y >= ITEM_Y && t.y <= ITEM_Y + ITEM_H) {
+    for (let i = 0; i < 3; i++) {
+      if (hit(t.x, t.y, ITEM_X[i], ITEM_Y, ITEM_W, ITEM_H)) { useItem(i); break; }
+    }
+    draw(); return;
+  }
+  // 方块托盘
+  if (t.y >= TRAY - 35 && t.y <= 925) {
+    for (let i = 0; i < S.pieces.length; i++) {
+      const p = S.pieces[i];
+      if (!p.used && Math.abs(t.x - (90 + i * 180)) < 85) { S.drag = i; S.pos = t; break; }
+    }
+  }
+  draw();
+});
+wx.onTouchMove(e => {
+  if (S.drag < 0) return;
+  S.pos = toDesign(e.touches[0].clientX, e.touches[0].clientY);
+  draw();
+});
+wx.onTouchEnd(() => {
+  if (S.drag < 0) return;
+  const idx = S.drag, p = S.pieces[idx];
+  S.drag = -1;
+  if (inBoard(S.pos)) {
+    const o = snapOrigin(p, S.pos);
+    place(idx, o.x, o.y);
+  } else S.msg = '把方块拖到棋盘上试试！';
+  draw();
+});
+
+// ---------- 启动 ----------
+loadSave();
+S.scene = 'menu';
+draw();
+
+try{S.scene="album";S.albumPage=6;S.beadDone={};for(let i=0;i<48;i++)S.beadDone[i]=true;S.beadGot=30;draw();}catch(e){document.title="ERR:"+e.message;throw e}</script></body></html>

@@ -1,0 +1,14 @@
+{
+  "appId": "com.gemblock.paradise",
+  "appName": "宝石方块乐园",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": {
+    "backgroundColor": "#F4F1EA",
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": true
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

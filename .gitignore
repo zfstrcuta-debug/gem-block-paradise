@@ -1,0 +1,32 @@
+# 依赖与构建产物
+node_modules/
+android-app/android/.gradle/
+android-app/android/build/
+android-app/android/app/build/
+android-app/android/capacitor-cordova-android-plugins/build/
+android-app/android/app/src/main/assets/public/
+android-app/android/local.properties
+android-app/www/
+android-app/build.log
+
+# 本机工具链（JDK / Android SDK，几个 G，绝不入库）
+android-tools/
+
+# 生成物：由 build.mjs 从 wechat-minigame/ 同步
+h5/game.js
+
+# 调试产物与截图
+_*.png
+_shot_*.html
+debug.log
+wechat-minigame/debug.log
+wechat-minigame/project.private.config.json*
+.ai-memory/
+.workbuddy/
+
+# 系统
+Thumbs.db
+.DS_Store
+
+# H5 目录里的安装包副本（正式产物在 release/）
+h5/*.apk

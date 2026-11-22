@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>宝石方块乐园</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#F4F1EA">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="宝石方块">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #F4F1EA;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
+  }
+  body { position: fixed; inset: 0; }
+  #game {
+    display: block; position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  #boot {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: #F4F1EA; color: #8A867E; z-index: 9;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    letter-spacing: .12em; transition: opacity .28s ease;
+  }
+  #boot.hide { opacity: 0; pointer-events: none; }
+  #boot .err { color: #B06868; font-size: 13px; letter-spacing: 0; max-width: 82vw; text-align: left; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="boot">宝石方块乐园 · 载入中</div>
+
+<script src="wx-shim.js"></script>
+<script src="game.js"></script>
+<script>
+  // 首帧画完再撤遮罩，避免白闪
+  (function () {
+    var boot = document.getElementById('boot');
+    function done() { boot.classList.add('hide'); setTimeout(function () { boot.remove(); }, 400); }
+    requestAnimationFrame(function () { requestAnimationFrame(done); });
+    window.addEventListener('error', function (e) {
+      if (!boot || !boot.isConnected) return;
+      boot.innerHTML = '<div class="err">载入失败：' + (e.message || e.error || '未知错误') + '</div>';
+    });
+  })();
+</script>
+</body>
+</html>

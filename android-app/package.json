@@ -1,0 +1,17 @@
+{
+  "name": "gem-block-paradise-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "宝石方块乐园 · 安卓壳",
+  "scripts": {
+    "sync": "node sync-www.mjs",
+    "build": "node sync-www.mjs && npx cap sync android && cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2"
+  }
+}
