@@ -30,3 +30,7 @@ Thumbs.db
 
 # H5 目录里的安装包副本（正式产物在 release/）
 h5/*.apk
+
+# 发布标记文件（内部产物）
+.wbapp_*
+*.genie
