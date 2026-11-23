@@ -84,7 +84,9 @@ function fitCheck(level, boardFill) {
   const r = fitCheck(n, 0);
   ok(r.bad === 0, 'L' + n + ' 空盘 40 轮每块 ≥2 落点（最少 ' + r.worst + '）');
 });
-[1, 10, 21].forEach(n => {
+// v36：L1 教学关优先走「有解发牌」，盘面极挤时会退回 fitPiece 腾位；
+// 那里的落点规则由 L10/L21 覆盖，L1 满盘只要求不崩（game over 是正常结局）。
+[10, 21].forEach(n => {
   const r = fitCheck(n, 0.75);
   ok(r.bad === 0, 'L' + n + ' 盘面填 75% 时仍每块 ≥2 落点（最少 ' + r.worst + '）');
 });

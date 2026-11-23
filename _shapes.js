@@ -80,10 +80,11 @@ ok('随机能抽到 3 格 L', (cnt.L3||0)>0);
 ok('随机能抽到 4 格 L', (cnt.L4||0)>0);
 ok('L 型总占比合理（>15%）', ((cnt.L3||0)+(cnt.L4||0))/N > 0.15, (((cnt.L3||0)+(cnt.L4||0))/N*100).toFixed(1)+'%');
 
-// v34：L1-6 小孩阶段只发直条 1-3 格（6×6 上不会「没位置放」）；L7-10 才进 4 格
+// v36：L1-6 教学关放开到 4 格含 L 型（有解发牌保证三手可消），不再只有直条
 g("S.level=2;"); const pool=g('eligibleShapes()');
-console.log('第 2 关候选池 '+pool.length+' 个，其中直条 '+pool.filter(s=>g('isStraightShape')(s)).length+' 个');
-ok('L1-6 候选池全是直条且不超过 3 格', pool.length > 0 && pool.every(s => g('isStraightShape')(s) && s.length <= 3));
+console.log('第 2 关候选池 '+pool.length+' 个，其中非直条 '+pool.filter(s=>!g('isStraightShape')(s)).length+' 个');
+ok('L1-6 候选池含 L/方块且不超过 4 格', pool.length > 0 && pool.every(s => s.length <= 4) &&
+  pool.some(s => !g('isStraightShape')(s)));
 g("S.level=8;"); const pool2=g('eligibleShapes()');
 ok('L7-10 候选池最多 4 格', pool2.length > 0 && pool2.every(s => s.length <= 4));
 

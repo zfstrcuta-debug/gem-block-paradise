@@ -1,4 +1,4 @@
-// v35 文案体检专项断言：事实校正 / 术语统一 / 三端通用 / 无旧文案残留
+// 文案体检专项断言（版本随产品升级）：事实校正 / 术语统一 / 三端通用 / 无旧文案残留
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const noop = () => {};
 function makeCtx() {
@@ -40,7 +40,7 @@ const privacy = run('JSON.stringify(INFO_PAGES.privacy)');
 const about = run('JSON.stringify(INFO_PAGES.about)');
 
 // ── 事实校正 ──
-ok(run('GAME_VERSION') === 'v35', '版本号 v35');
+ok(run('GAME_VERSION') === 'v36', '版本号 v36');
 ok(SRC.indexOf('每日奖励！三种道具各 +1～') >= 0, '每日奖励文案与 DAILY_REWARD=3 一致');
 ok(SRC.indexOf('每日奖励！额外获得 1 个道具') < 0, '旧「1 个道具」文案已清除');
 ok(run('JSON.stringify(DAILY_TASKS)').indexOf('消除 30 格方块') >= 0,

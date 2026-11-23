@@ -1,4 +1,4 @@
-/* 宝石方块乐园 - 微信小游戏 Canvas 2D 版 v35（全站文案体检：事实校正 + 术语统一 + 语气优化） */
+/* 宝石方块乐园 - 微信小游戏 Canvas 2D 版 v36（教学关有解发牌：多样形状 + 三手可消） */
 'use strict';
 
 // ---------- 配置 ----------
@@ -538,7 +538,7 @@ const ALBUM_VIEW_TOP = 190, ALBUM_VIEW_BOTTOM = 792;  // 可视区域（标题�
 function albumMaxScroll() { return Math.max(0, BEAD_PAGES.length * ALBUM_SEC_H - (ALBUM_VIEW_BOTTOM - ALBUM_VIEW_TOP)); }
 
 // ---------- 信息页：玩法说明 / 隐私政策 / 关于（全部简体） ----------
-const GAME_VERSION = 'v35';
+const GAME_VERSION = 'v36';
 const INFO_TABS = [
   { key: 'help', name: '玩法说明' },
   { key: 'privacy', name: '隐私政策' },
@@ -551,6 +551,7 @@ const INFO_PAGES = {
     { h: '基本玩法', lines: [
       '点选下方方块再点棋盘，或直接拖到棋盘上放置。',
       '凑满一整行或一整列即可消除得分。',
+      '前 6 关发的方块都能拼成完整一行，试着摆在一起。',
       '每次发的方块都保证至少有 2 个地方可以放。'
     ] },
     { h: '两种模式', lines: [
@@ -955,14 +956,16 @@ function shapeH(shape) { return Math.max.apply(null, shape.map(c => c[1])) + 1; 
 function isStraightShape(s) { return shapeW(s) === 1 || shapeH(s) === 1; }
 function eligibleShapes() {
   let maxCells = 99;
-  let straightOnly = false;
+  const teach = S.mode === 'level' && tierOf(S.level) === 0;
   if (S.mode === 'level') {
     const t = tierOf(S.level);
-    if (t === 0) { maxCells = 3; straightOnly = true; }   // L1-6：只有 1×1 / 1×2 / 1×3
-    else if (t === 1) maxCells = 4;                        // L7-10：最多 4 格（排除 1×5 / 3×3）
+    // v36：教学关不再只发直条——放开到 4 格（含 L 型 / 2×2），
+    // 但仍排除 1×4 长条（6×6 上笨重）与 1×1（一拖就满、学不到东西）。
+    if (t <= 1) maxCells = 4;                              // L1-10：最多 4 格（排除 1×5 / 3×3）
   }
   return SHAPES.filter(s => shapeW(s) <= S.active && shapeH(s) <= S.active &&
-    s.length <= maxCells && (!straightOnly || isStraightShape(s)));
+    s.length <= maxCells &&
+    (!teach || (s.length >= 2 && (s.length <= 3 || !isStraightShape(s)))));
 }
 // 闯关方块混搭：k 格里随机 1..k 颗宝石（其余普通块），宝石取 2~3 种颜色
 function mixCellCodes(k) {
@@ -1048,8 +1051,93 @@ function fitPiece() {
   if (rescueOpen(1)) S.msg = '位置太挤，小助手帮你腾了一片～';
   return makeTinyPiece(1);
 }
+// v36 教学关「有解发牌」：前 6 关不要只发直条，也不要发一堆凑不成行的散块。
+// 做法：找一行空格最集中的行，把它的连续空格切成 2~3 段；每段按「贴着这一行铺」构造一块
+// （直条 / L 型 / 2×2 混搭），最后在棋盘副本上模拟摆一次——确认这 3 块真能填满那行才算有解。
+// 形状随机轮换，孩子不会每局看到同一组；每块仍须过 fitCount≥2 的全局防死局检查。
+function buildTeachSet() {
+  const reg = S.reg;
+  // 1) 挑一行空格最多的行（并列随机）
+  let row = reg.s, bestN = -1;
+  for (let y = reg.s; y < reg.e; y++) {
+    let n = 0;
+    for (let x = reg.s; x < reg.e; x++) if (S.board[y][x] === EMPTY) n++;
+    if (n > bestN || (n === bestN && Math.random() < 0.5)) { bestN = n; row = y; }
+  }
+  if (bestN < 3) return null;
+  // 2) 这一行里最长的一段连续空格
+  let seg = [], cur = [];
+  for (let x = reg.s; x < reg.e; x++) {
+    if (S.board[row][x] === EMPTY) cur.push(x);
+    else { if (cur.length > seg.length) seg = cur; cur = []; }
+  }
+  if (cur.length > seg.length) seg = cur;
+  if (seg.length < 3) return null;
+  // 3) 切成 2~3 段；≥6 格切三段且每段至少 2 格
+  const L = seg.length, split = [];
+  if (L >= 6) {
+    const extra = L - 6;
+    const e1 = Math.floor(Math.random() * (extra + 1));
+    const s1 = 2 + e1, s2 = 2 + (extra - e1), s3 = 2;
+    let p = 0;
+    split.push([seg[p], seg[p + s1 - 1]]); p += s1;
+    split.push([seg[p], seg[p + s2 - 1]]); p += s2;
+    split.push([seg[p], seg[p + s3 - 1]]);
+  } else {
+    const s1 = Math.floor(L / 2);
+    split.push([seg[0], seg[s1 - 1]], [seg[s1], seg[L - 1]]);
+  }
+  // 4) 每段构造一块；装饰格往下或往上拐（哪边空往哪边），让形状不只是直线
+  const out = [];
+  for (const [x0, x1] of split) {
+    const k = x1 - x0 + 1;
+    const base = []; for (let i = 0; i < k; i++) base.push([i, 0]);
+    let shape = base;
+    const r = Math.random();
+    const dy = row + 1 < reg.e ? 1 : (row - 1 >= reg.s ? -1 : 0);
+    const free = dy !== 0;
+    const freeCols = (cols) => cols.every(cx => S.board[row + dy][cx] === EMPTY);
+    if (k === 2 && free && r < 0.4 && freeCols([x0, x0 + 1])) {
+      // 2×2（dy=-1 时归一化到 y=0 起）
+      shape = dy === 1 ? [[0, 0], [1, 0], [0, 1], [1, 1]] : [[0, 1], [1, 1], [0, 0], [1, 0]];
+    } else if (k >= 2 && free && r < 0.8 && freeCols([x1])) {
+      shape = base.concat([[k - 1, dy]]);                     // L 型
+    }
+    // dy=-1 时形状含负 y，整体下移一行，落点 y0 也跟着上移
+    let minY = 0; for (const c of shape) minY = Math.min(minY, c[1]);
+    const shift = -minY;
+    const norm = shape.map(c => [c[0], c[1] + shift]);
+    const ci = BLOCK_OFFSET + Math.floor(Math.random() * COLORS.length);
+    out.push({ cells: norm.map(c => [c[0], c[1], ci]), x0: x0, y0: row - shift, used: false });
+  }
+  // 5) 棋盘副本模拟：3 块按设计位置都能放，且放完那一整行确实满了
+  const tmp = S.board.map(r2 => r2.slice());
+  for (const b of out) {
+    for (const c of b.cells) {
+      const x = b.x0 + c[0], y = b.y0 + c[1];
+      if (x < reg.s || x >= reg.e || y < reg.s || y >= reg.e || tmp[y][x] !== EMPTY) return null;
+      tmp[y][x] = 1;
+    }
+  }
+  for (let x = reg.s; x < reg.e; x++) if (tmp[row][x] === EMPTY) return null;
+  // 6) 全局防死局：每块在真实盘面上仍要有 ≥2 个落点。
+  //    盘面很挤时构造块可能一格都放不下——直接退回 null，让 spawn 走 fitPiece 的腾位兜底。
+  const pieces = out.map(b => ({ cells: b.cells, used: false }));
+  if (!pieces.every(p => fitCount(p.cells) >= 2)) return null;
+  // 7) L<6 时只切出 2 块，补一块普通块（不影响"这几手能消行"的承诺）
+  while (pieces.length < 3) pieces.push(fitPiece());
+  return pieces;
+}
 function spawn() {
-  S.pieces = [fitPiece(), fitPiece(), fitPiece()];
+  // 教学关优先发「有解牌组」：有限次构造，失败就退回防死局的普通发牌
+  let taught = false;
+  if (S.mode === 'level' && tierOf(S.level) === 0) {
+    for (let t = 0; t < 12; t++) {
+      const set = buildTeachSet();
+      if (set) { S.pieces = set; taught = true; break; }
+    }
+  }
+  if (!taught) S.pieces = [fitPiece(), fitPiece(), fitPiece()];
   S.over = checkOver();
   if (S.over) S.msg = '游戏结束！';
 }
@@ -1638,7 +1726,8 @@ function startLevel(n) {
   S.adUsed = 0; S.adLimit = 2; // 关卡：广告复活上限 2 次
   S.loseHint = null; S.combo = 0; clearFx();
   const t = tierOf(n);
-  if (t <= 1) S.msg = '填满行或列就能消除得分，加油！';
+  if (t === 0) S.msg = '试着把方块拼成完整一行，填满就消！';
+  else if (t === 1) S.msg = '填满行或列就能消除得分，加油！';
   else if (t === 2) S.msg = '区域变大啦！填满行列拿分过关！';
   else if (S.active === 8) S.msg = '盘面收紧！收集 + 消除，突破分数线过关！';
   else S.msg = '收集 + 消除，突破分数线过关！';
@@ -1902,6 +1991,15 @@ function hammerBest() {
   return { x: bx, y: by };
 }
 function refreshPieces() {
+  // 教学关：刷出来的也要是一组"能凑满一行"的块，不破坏引导
+  if (S.mode === 'level' && tierOf(S.level) === 0) {
+    const set = buildTeachSet();
+    if (set) {
+      let k = 0;
+      for (let i = 0; i < S.pieces.length; i++) if (!S.pieces[i].used) S.pieces[i] = set[k++ % set.length];
+      return;
+    }
+  }
   // 与 spawn 同一条防死局规则：刷出来的每一块也必须有 ≥2 个落点
   for (let i = 0; i < S.pieces.length; i++) if (!S.pieces[i].used) S.pieces[i] = fitPiece();
 }
@@ -3830,7 +3928,7 @@ function drawTutorial() {
     tip = '① 点一下下面的方块，把它拿起来';
   } else if (T.step === 1) {
     cx = regCx; cy = regCy;
-    tip = '② 拖到棋盘上放下，或点一下方块再点棋盘';
+    tip = '② 试试把三块摆在同一行，摆满就消';
   } else if (T.step === 2) {
     cx = 71; cy = 140;
     tip = '③ 把一整行或一整列填满，就会消除得分！';
