@@ -48,7 +48,7 @@ function ok(cond, name, detail) {
 const src = fs.readFileSync(path.join(__dirname, 'wechat-minigame', 'game.js'), 'utf8');
 
 // ---- 版本与触发点 ----
-ok(run('GAME_VERSION') === 'v40', '版本号 v40');
+ok(run('GAME_VERSION') === 'v43', '版本号 v43');
 ok(/sfx\('w'\s*\+\s*Math\.min\(5/.test(src), '消除音仍在 startClearFx');
 // 托盘代码块里不能出现 sfx 调用
 const tray = src.slice(src.indexOf('方块托盘：命中区放宽'), src.indexOf('wx.onTouchMove'));

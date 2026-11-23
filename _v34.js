@@ -36,11 +36,17 @@ let pass = 0, fail = 0;
 function ok(cond, name) { if (cond) { pass++; console.log('  ✓ ' + name); } else { fail++; console.log('  ✗ ' + name); } }
 const reset = () => run('S.tutorialDone = false;');
 
-console.log('\n== 难度分档 ==');
-ok(run('activeSizeOf(1)') === 6 && run('activeSizeOf(10)') === 6, 'L1-10 全是 6×6');
-ok(run('activeSizeOf(11)') === 10 && run('activeSizeOf(25)') === 8, 'L11+ 恢复 10×10 / 8×8 交替');
-ok(run('levelTarget(1)') === 40 && run('levelTarget(10)') === 130, '前 10 关分数线 40~130');
-ok(run('obstacleRatioOf(10)') === 0, '前 10 关零障碍');
+console.log('\n== 难度分档（v43 三段）==');
+ok([1, 2, 3].every(n => run('activeSizeOf(' + n + ')') === 6), 'L1-3 是 6×6');
+ok([4, 5, 6, 7, 8].every(n => run('activeSizeOf(' + n + ')') === 8), 'L4-8 是 8×8');
+ok([9, 10, 15, 20].every(n => run('activeSizeOf(' + n + ')') === 10), 'L9-20 是 10×10');
+ok(run('activeSizeOf(21)') === 8 && run('activeSizeOf(22)') === 10, 'L21+ 10×10 / 8×8 交替');
+ok(run('levelTarget(1)') === 40 && run('levelTarget(2)') === 50 && run('levelTarget(3)') === 60,
+  'L1-3 目标 40/50/60');
+ok(run('levelTarget(4)') === 80 && run('levelTarget(8)') === 120, 'L4-8 目标 80~120');
+ok(run('levelTarget(9)') === 200 && run('levelTarget(20)') === 255, 'L9-20 目标 200~255');
+ok([1, 3, 4, 8].every(n => run('obstacleRatioOf(' + n + ')') === 0), 'L1-8 零障碍');
+ok([9, 15, 20, 21].every(n => run('obstacleRatioOf(' + n + ')') > 0), 'L9 起有障碍');
 
 console.log('\n== 收集目标后移 ==');
 for (let n = 1; n <= 20; n++) ok(run('makeGoal(' + n + ')') === null, 'L' + n + ' 无收集目标');

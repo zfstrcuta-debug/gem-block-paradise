@@ -40,7 +40,7 @@ function ok(cond, name, detail) {
 }
 
 // ---- 版本与默认态 ----
-ok(run('GAME_VERSION') === 'v40', '版本号 v40');
+ok(run('GAME_VERSION') === 'v43', '版本号 v43');
 ok(run('S.soundOn') === true, '音效默认开');
 ok(typeof run('iconSound') === 'function', '喇叭图标函数存在');
 const src = fs.readFileSync(path.join(__dirname, 'wechat-minigame', 'game.js'), 'utf8');

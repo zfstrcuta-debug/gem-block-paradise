@@ -38,7 +38,7 @@ function ok(cond, name, detail) {
 const BX = run('BX'), BY = run('BY'), CELL = run('CELL'), GAP = run('GAP'), LIFT = run('DRAG_LIFT');
 const STEP = CELL + GAP;
 
-ok(run('GAME_VERSION') === 'v40', '版本号 v40');
+ok(run('GAME_VERSION') === 'v43', '版本号 v43');
 const src = fs.readFileSync(path.join(__dirname, 'wechat-minigame', 'game.js'), 'utf8');
 ok(src.includes('piece(p, a.x, a.y, CELL, CELL + GAP)'), '拖拽预览用棋盘真实格距');
 ok(src.includes('function piece(p, cx, cy, unit, step)'), 'piece 支持独立 step');

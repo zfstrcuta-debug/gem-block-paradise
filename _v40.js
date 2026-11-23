@@ -50,7 +50,7 @@ const reset = `startLevel(1); S.soundOn=true; S.drag=-1; S.sel=-1; S.lock=false;
   S.dailyModal=false; S.pendingAd=null; S.loseHint=null; S.result='';
   audioLog.tags=[]; audioLog.vols=[];`;
 
-ok(run('GAME_VERSION') === 'v40', '版本号 v40');
+ok(run('GAME_VERSION') === 'v43', '版本号 v43');
 ok(fs.existsSync(path.join(__dirname, 'wechat-minigame', 'audio', 'tap.wav')), '微信包体含 tap.wav');
 ok(fs.existsSync(path.join(__dirname, 'h5', 'audio', 'tap.wav')), 'H5 含 tap.wav');
 ok(run("SFX.tap.src") === 'audio/tap.wav', 'tap 音源路径正确');

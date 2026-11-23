@@ -35,7 +35,7 @@ function ok(cond, name, detail) {
 }
 
 console.log('== 版本与形状池 ==');
-ok(run('GAME_VERSION') === 'v40', '版本号 v40');
+ok(run('GAME_VERSION') === 'v43', '版本号 v43');
 run('S.mode="level"; S.level=1; S.active=6; S.reg=regionOf(6);');
 const pool = run('JSON.stringify(eligibleShapes())');
 const shapes = JSON.parse(pool);
@@ -45,9 +45,10 @@ ok(shapes.length >= 8, '教学关候选池够丰富（' + shapes.length + ' 种�
 ok(shapes.every(s => s.length >= 2), '教学关不发 1×1');
 ok(shapes.some(s => s.length === 3 && w(s) > 1 && h(s) > 1),
   '教学关含 3 格 L 型');
-ok(shapes.some(s => s.length === 4 && s.some(c => c[1] === 1)), '教学关含 4 格形状');
-ok(!shapes.some(s => s.length === 4 && (w(s) === 4 || h(s) === 4)),
-  '教学关排除 1×4 长条');
+// v42：不做格数分档，教学关按 6×6 盘面尺寸过滤；只排 1×1，含 4/5 格与各种异形
+ok(shapes.every(s => s.length >= 2 && w(s) <= 6 && h(s) <= 6), '教学关只排 1×1、按盘面尺寸过滤');
+ok(shapes.some(s => s.length >= 5), '教学关含 5 格形状（放得下就发）');
+ok(shapes.some(s => s.length === 4 && s.some(c => c[1] === 1)), '教学关含 4 格异形');
 
 console.log('\n== 有解发牌：三手可消 ==');
 // 用棋盘副本模拟：把 S.pieces 的设计落点重建出来不现实，

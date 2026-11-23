@@ -1,4 +1,4 @@
-/* 宝石方块乐园 - 微信小游戏 Canvas 2D 版 v40（拾取拖动静音，放置轻咔，消除叠木琴） */
+/* 宝石方块乐园 - 微信小游戏 Canvas 2D 版 v43（难度曲线重排：6×6 / 8×8 / 10×10 三段） */
 'use strict';
 
 // ---------- 配置 ----------
@@ -509,25 +509,52 @@ const FONT = {
   family: '"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif',
   num: '"DIN Alternate","Helvetica Neue","PingFang SC",sans-serif'
 };
+// v42：37 种形状按巧巧设计稿逐格还原（深蓝 I9 / 橘 L12 / 绿 O4 / 黄 Z4 / 紫凸4 / 棕红斜4）。
+// 每格编码由 randPiece 决定，形状只管占位；前期按 tier 逐步放开（详见 eligibleShapes）。
 const SHAPES = [
-  [[0, 0]],                                                              // 1×1
-  [[0, 0], [1, 0]], [[0, 0], [0, 1]],                                    // 1×2 横 / 竖
-  [[0, 0], [1, 0], [2, 0]], [[0, 0], [0, 1], [0, 2]],                    // 1×3 横 / 竖
-  [[0, 0], [0, 1], [1, 1]], [[0, 0], [1, 0], [0, 1]],                    // L 型 3 格（拐角）四朝向
-  [[0, 0], [1, 0], [1, 1]], [[1, 0], [0, 1], [1, 1]],
-  [[0, 0], [1, 0], [2, 0], [3, 0]], [[0, 0], [0, 1], [0, 2], [0, 3]],    // 1×4 横 / 竖
-  [[0, 0], [0, 1], [0, 2], [1, 2]], [[0, 0], [1, 0], [2, 0], [0, 1]],    // L 型 4 格 八朝向（L/J 全旋转）
-  [[0, 0], [1, 0], [1, 1], [1, 2]], [[2, 0], [0, 1], [1, 1], [2, 1]],
-  [[1, 0], [1, 1], [0, 2], [1, 2]], [[0, 0], [0, 1], [1, 1], [2, 1]],
-  [[0, 0], [1, 0], [0, 1], [0, 2]], [[0, 0], [1, 0], [2, 0], [2, 1]],
-  [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]],                              // 1×5 横
-  [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]],                              // 1×5 竖
-  [[0, 0], [1, 0], [0, 1], [1, 1]],                                      // 2×2
-  [[0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [0, 2], [1, 2], [2, 2]], // 3×3
-  [[1, 0], [0, 1], [1, 1], [2, 1]],                                      // 上凸
-  [[0, 0], [1, 0], [2, 0], [1, 1]],                                      // 下凸
-  [[0, 0], [1, 0], [1, 1], [2, 1]], [[1, 0], [2, 0], [0, 1], [1, 1]],    // Z 型 横 / 镜像
-  [[1, 0], [1, 1], [0, 1], [0, 2]], [[0, 0], [0, 1], [1, 1], [1, 2]]     // Z 型 竖 / 镜像
+  // 深蓝 I 型 9：横 1~5 + 竖 2~5
+  [[0,0]],
+  [[0,0],[1,0]],
+  [[0,0],[1,0],[2,0]],
+  [[0,0],[1,0],[2,0],[3,0]],
+  [[0,0],[1,0],[2,0],[3,0],[4,0]],
+  [[0,0],[0,1]],
+  [[0,0],[0,1],[0,2]],
+  [[0,0],[0,1],[0,2],[0,3]],
+  [[0,0],[0,1],[0,2],[0,3],[0,4]],
+  // 橘 L 型 12：3 格四向 / 4 格四向 / 5 格四向
+  [[0,0],[0,1],[1,1]],
+  [[0,0],[0,1],[1,1],[2,1]],
+  [[0,0],[0,1],[0,2],[1,2],[2,2]],
+  [[1,0],[0,1],[1,1]],
+  [[2,0],[0,1],[1,1],[2,1]],
+  [[2,0],[2,1],[0,2],[1,2],[2,2]],
+  [[0,0],[1,0],[0,1]],
+  [[0,0],[1,0],[2,0],[0,1]],
+  [[0,0],[1,0],[2,0],[0,1],[0,2]],
+  [[0,0],[1,0],[1,1]],
+  [[0,0],[1,0],[2,0],[2,1]],
+  [[0,0],[1,0],[2,0],[2,1],[2,2]],
+  // 绿 O 型 4：3×3 / 2×2 / 2×3 横 / 3×2 竖
+  [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]],
+  [[0,0],[1,0],[0,1],[1,1]],
+  [[0,0],[1,0],[2,0],[0,1],[1,1],[2,1]],
+  [[0,0],[1,0],[0,1],[1,1],[0,2],[1,2]],
+  // 黄 Z 型 4：斜两向 / 横两向
+  [[0,0],[0,1],[1,1],[1,2]],
+  [[1,0],[0,1],[1,1],[0,2]],
+  [[0,0],[1,0],[1,1],[2,1]],
+  [[1,0],[2,0],[0,1],[1,1]],
+  // 紫凸型 4：4 格 T/凸四向（原紫 1、2 两格斜条已归入棕红）
+  [[0,0],[0,1],[1,1],[0,2]],
+  [[1,0],[0,1],[1,1],[1,2]],
+  [[1,0],[0,1],[1,1],[2,1]],
+  [[0,0],[1,0],[2,0],[1,1]],
+  // 棕红斜型 4：2 格斜条两向 + 3 格斜条两向
+  [[0,0],[1,1]],
+  [[1,0],[0,1]],
+  [[2,0],[1,1],[0,2]],
+  [[0,0],[1,1],[2,2]]
 ];
 
 // ---------- 拼图图样（原创通用物品，全部矢量插画） ----------
@@ -539,7 +566,7 @@ const ALBUM_VIEW_TOP = 190, ALBUM_VIEW_BOTTOM = 792;  // 可视区域（标题�
 function albumMaxScroll() { return Math.max(0, BEAD_PAGES.length * ALBUM_SEC_H - (ALBUM_VIEW_BOTTOM - ALBUM_VIEW_TOP)); }
 
 // ---------- 信息页：玩法说明 / 隐私政策 / 关于（全部简体） ----------
-const GAME_VERSION = 'v40';
+const GAME_VERSION = 'v43';
 const INFO_TABS = [
   { key: 'help', name: '玩法说明' },
   { key: 'privacy', name: '隐私政策' },
@@ -709,45 +736,38 @@ const BEAD_TOTAL = BEADS.length;
 const BEAD_NEED = 16;   // 每个图样需攒 16 片碎片（图样为 4×4 共 16 小格，一片一格）
 
 // ---------- 难度分档 ----------
-// v34：收集目标整体后移到 L21+，前 20 关是「先学会放方块」的平缓阶梯。
-// L1-6: 6×6 只给直条 1-3 格；L7-10: 6×6 最多 4 格；L11-20: 10×10 轻障碍；L21+: 收集+障碍+盘面交替
+// v43 巧巧重排曲线：L1-3 6×6（目标 40/50/60）、L4-8 8×8（目标 80~120）、
+// L9-20 10×10 + 花样障碍（目标 200~255）、L21+ 收集 + 障碍 + 10×10/8×8 交替。
+// 收集目标仍在 L21+；形状池全关卡开放 37 种，只按盘面尺寸过滤。
 function tierOf(n) {
-  if (n <= 6) return 0;
-  if (n <= 10) return 1;
+  if (n <= 3) return 0;
+  if (n <= 8) return 1;
   if (n <= 20) return 2;
   return 3;
 }
 function activeSizeOf(n) {
   const t = tierOf(n);
-  // v34：前 10 关一律 6×6（小孩也能一眼看出哪里能放），L11 才开 10×10
-  if (t <= 1) return 6;
+  if (t === 0) return 6;
+  if (t === 1) return 8;
   if (t === 2) return 10;
-  // C5：L21+ 盘面在 10×10 与 8×8 之间交替
-  return n % 2 === 0 ? 10 : 8;
+  return n % 2 === 0 ? 10 : 8;   // L21+ 盘面交替
 }
-// 分数线按「自动对局模拟」的可达上限重标：
-// 旧曲线（L5=200、L11=560、L25=1720）远超实际得分能力（10×10 一轮只有 3 块，
-// 填满一行远比 6×6 难），L5 之后基本不可通关。
-// 新曲线缓慢上升并封顶，后期难度交给收集目标与障碍物，而不是分数线数字。
+// 分数线只做温和阶梯，真正难度交给盘面尺寸、障碍与收集，不靠堆数字卡人
+// （旧曲线按想象定得远超自动对局模拟的可达上限，L5 之后基本过不了）。
 function levelTarget(n) {
   const t = tierOf(n);
-  // v34 小孩化：6×6 消一行 = +10 分基准，分数线约 4~8 行的量
-  if (t === 0) return 30 + n * 10;                    // L1-6:  40/50/60/70/80/90
-  if (t === 1) return 100 + (n - 7) * 10;             // L7-10: 100/110/120/130
-  if (t === 2) return 220 + (n - 11) * 5;             // L11-20: 220~265
-  // C5：L21+ 收紧盘面（8×8）的关卡同步下调分数线，难度交给盘面尺寸而不是数字
+  if (t === 0) return 40 + (n - 1) * 10;              // L1-3:  40/50/60
+  if (t === 1) return 80 + (n - 4) * 10;              // L4-8:  80/90/100/110/120
+  if (t === 2) return 200 + (n - 9) * 5;              // L9-20: 200~255
   const base = 250 + Math.min(30, (n - 21) * 2);
   return activeSizeOf(n) === 8 ? Math.round(base * 0.8) : base;
 }
-// 障碍密度：按「占可玩区面积的比例」给，而不是固定块数——
-// 8×8（64 格）与 10×10（100 格）用同一个比例才是同样的观感。
-// 上限 26%：再往上就真的没地方落子，复活和道具也救不回来。
+// 障碍密度按「占可玩区面积的比例」给，上限 26%（再高就没落点）。
+// L1-8 零障碍；L9 起铺花样障碍 14% → 22%；L21+ 22% → 26%，8×8 封顶 22%。
 function obstacleRatioOf(n) {
   const t = tierOf(n);
-  // v34：前 10 关零障碍（小孩阶段只学放方块与消行）
   if (t <= 1) return 0;
-  if (t === 2) return 0.16 + (n - 11) * 0.006;        // L11-20：约 16% → 21%
-  // C5：8×8 收紧关的障碍封顶 22%（小盘上 26% 会真的没有落子空间）
+  if (t === 2) return 0.14 + (n - 9) * 0.007;         // L9-20：约 14% → 22%
   const r = Math.min(0.26, 0.22 + (n - 21) * 0.004);
   return activeSizeOf(n) === 8 ? Math.min(r, 0.22) : r;
 }
@@ -840,7 +860,8 @@ const S = {
   tutorialDone: false,  // 新手教程只做一次（存档）
   tutorial: null,       // 教程态：{ step:0..3, t0 } —— 0 拿起 / 1 放置 / 2 消行 / 3 过关
   sel: -1,              // 点选放置：已选中的托盘块索引（-1=无）
-  soundOn: true         // 音效开关：关卡页右上角喇叭，存档全端生效
+  soundOn: true,        // 音效开关：关卡页右上角喇叭，存档全端生效
+  layoutHistory: []     // 最近 30 关用过的障碍图样 id（存档，连续 30 关不重样）
 };
 
 // ---------- 存档 ----------
@@ -862,7 +883,12 @@ function loadSave() {
     S.tutorialDone = !!wx.getStorageSync('tutorialDone');
     const snd = wx.getStorageSync('sound');
     S.soundOn = snd !== false && snd !== 0;   // 只有明确关掉才是关，首次默认开
+    const lh = wx.getStorageSync('layoutHistory');
+    S.layoutHistory = Array.isArray(lh) ? lh.slice(-30) : [];  // 旧档无此键 → 空
   } catch (e) { /* 首次无存档 */ }
+}
+function saveLayoutHistory() {
+  try { wx.setStorageSync('layoutHistory', S.layoutHistory); } catch (e) { /* 忽略 */ }
 }
 function saveSound() {
   try { wx.setStorageSync('sound', S.soundOn); } catch (e) { /* 忽略 */ }
@@ -960,20 +986,17 @@ function shuffleArr(a) {
 function shapeW(shape) { return Math.max.apply(null, shape.map(c => c[0])) + 1; }
 function shapeH(shape) { return Math.max.apply(null, shape.map(c => c[1])) + 1; }
 // 每格自带编码：闯关 21+=宝石普通混搭；闯关 1-20 与无尽=整块单色普通方块
-// v34 形状池跟盘面配套：6×6 只发能放得下的小块，别给孩子发 1×5 / 3×3 这种「没位置放」的块
+// 形状池全关卡开放 37 种，只按盘面尺寸过滤（放得下才发），详见 eligibleShapes。
 function isStraightShape(s) { return shapeW(s) === 1 || shapeH(s) === 1; }
 function eligibleShapes() {
-  let maxCells = 99;
+  // v42：37 种形状全关卡开放，不放人为的格数分档（巧巧：只要放得下就都可以）。
+  // 难度靠两道既有保险控住，不用砍形状种类：
+  //   ① 盘面尺寸过滤：宽/高超过当前开放区直接排除（6×6 上 3×3 能放、5 格长条也能放）；
+  //   ② 防死局 fitCount≥2：randPiece→spawn 保证每块至少有 2 个合法落点，不会发死块。
+  // 教学关另走 buildTeachSet 的有解发牌（三手可消）；这里只额外排除 1×1（一拖就满，学不到消行）。
   const teach = S.mode === 'level' && tierOf(S.level) === 0;
-  if (S.mode === 'level') {
-    const t = tierOf(S.level);
-    // v36：教学关不再只发直条——放开到 4 格（含 L 型 / 2×2），
-    // 但仍排除 1×4 长条（6×6 上笨重）与 1×1（一拖就满、学不到东西）。
-    if (t <= 1) maxCells = 4;                              // L1-10：最多 4 格（排除 1×5 / 3×3）
-  }
   return SHAPES.filter(s => shapeW(s) <= S.active && shapeH(s) <= S.active &&
-    s.length <= maxCells &&
-    (!teach || (s.length >= 2 && (s.length <= 3 || !isStraightShape(s)))));
+    (!teach || s.length >= 2));
 }
 // 闯关方块混搭：k 格里随机 1..k 颗宝石（其余普通块），宝石取 2~3 种颜色
 function mixCellCodes(k) {
@@ -1410,11 +1433,11 @@ function drawParticles() {
 }
 
 // ---------- 障碍布局 ----------
-// 障碍不是「撒几颗」而是「砌成一片」：每关随机挑一种布局模板。
-// 模板是一组比例矩形（相对可玩区 0..1，与盘面大小无关），
-// 铺出来是角墩 / 中央岛 / 双墙 / 横坝 / 斜梯 / 对角 / 品字 / 上下墩——
-// 在盘面上有明确轮廓，玩家一眼看出「这一整块被占住了」，而不是东一颗西一颗。
-const OB_LAYOUTS = [
+// 障碍不是「撒几颗」而是「砌成一片」：每关挑一种布局图样。
+// 基础模板是一组比例矩形（相对可玩区 0..1，与盘面大小无关），
+// 再经水平镜像 + 0/90/180/270 旋转展开成互异图样；同形（如四角对称）只留一份。
+// v41：巧巧要求「每 30 关障碍图样不重复」——图样池必须 ≥31 种，才够连续 30 关不重样。
+const OB_BASE = [
   { id: 'corner4', rects: [[0, 0, .20, .30], [.80, 0, .20, .30], [0, .70, .20, .30], [.80, .70, .20, .30]] },
   { id: 'island',  rects: [[.30, .30, .40, .40]] },
   { id: 'walls',   rects: [[0, .20, .20, .60], [.80, .20, .20, .60]] },
@@ -1422,8 +1445,46 @@ const OB_LAYOUTS = [
   { id: 'stair',   rects: [[0, 0, .30, .20], [.175, .20, .30, .20], [.35, .40, .30, .20], [.525, .60, .30, .20], [.70, .80, .30, .20]] },
   { id: 'diag',    rects: [[0, 0, .30, .30], [.70, .70, .30, .30]] },
   { id: 'trio',    rects: [[.10, .10, .30, .30], [.60, .10, .30, .30], [.35, .60, .30, .30]] },
-  { id: 'pillar',  rects: [[.35, 0, .30, .30], [.35, .70, .30, .30]] }
+  { id: 'pillar',  rects: [[.35, 0, .30, .30], [.35, .70, .30, .30]] },
+  // 1~2 块模板：小盘（≤8×8）也要凑出 ≥31 种图样，不能只靠大盘模板
+  { id: 'half',        rects: [[0, 0, .50, 1.00]] },
+  { id: 'bigCorner',   rects: [[0, 0, .50, .50]] },
+  { id: 'offsetIsland',rects: [[.15, .15, .50, .50]] },
+  { id: 'centerWide',  rects: [[.20, .35, .60, .30]] },
+  { id: 'twoBands',    rects: [[0, .25, 1.00, .20], [0, .75, 1.00, .20]] },
+  { id: 'innerCols',   rects: [[.10, 0, .25, 1.00], [.65, 0, .25, 1.00]] },
+  { id: 'wideCorner',  rects: [[0, 0, .70, .35]] },
+  { id: 'midBlock',    rects: [[.25, .25, .50, .50]] },
+  { id: 'sideWall',    rects: [[0, 0, .20, 1.00]] },
+  // 多块模板：只在 >8×8 使用，视觉仍是整片轮廓
+  { id: 'cross',  rects: [[.35, 0, .30, 1.00], [0, .35, 1.00, .30]] },
+  { id: 'tee',    rects: [[.10, .10, .80, .25], [.35, .35, .30, .55]] },
+  { id: 'ell',    rects: [[0, 0, .30, 1.00], [0, 0, 1.00, .30]] },
+  { id: 'ring',   rects: [[0, 0, 1.00, .20], [0, .80, 1.00, .20], [0, 0, .20, 1.00], [.80, 0, .20, 1.00]] },
+  { id: 'triRow', rects: [[.05, .10, .28, .25], [.36, .40, .28, .25], [.67, .70, .28, .25]] }
 ];
+const r4 = v => Math.round(v * 10000) / 10000;
+function txRects(rects, rot, flip) {
+  return rects.map(r => {
+    let [x, y, w, h] = r;
+    if (flip) x = 1 - x - w;
+    for (let i = 0; i < rot; i++) [x, y, w, h] = [1 - y - h, x, h, w];
+    return [r4(x), r4(y), r4(w), r4(h)];
+  }).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+}
+const OB_LAYOUTS = (() => {
+  const seen = new Set(), out = [];
+  for (const base of OB_BASE) {
+    for (const flip of [0, 1]) for (const rot of [0, 1, 2, 3]) {
+      const rects = txRects(base.rects, rot, flip);
+      const key = JSON.stringify(rects);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ id: base.id + '_' + rot + (flip ? 'm' : ''), rects: rects });
+    }
+  }
+  return out;
+})();
 const rectArea = b => (b.x1 - b.x0 + 1) * (b.y1 - b.y0 + 1);
 // 把模板换算成具体格子。预算对齐只靠「把矩形整体放大/缩小」，
 // 绝不去挖单个格子——挖洞会把一块方砖变成空框或散点，就完全不是「砌成一片」了。
@@ -1481,18 +1542,29 @@ function obstacleCellsFor(reg, L, want) {
   }
   return [...collect()].map(k => ({ x: k % 100, y: Math.floor(k / 100) }));
 }
-// 开局砌障碍：按预算挑面积最接近的模板（最好的两个里随机，免得每关都一个样）
+// 开局砌障碍：按预算挑面积最接近的图样，并且最近 30 关用过的不再抽。
+// 8×8 上多块模板会被缩成「好几坨小墩」，所以小盘只用 1~2 块图样，但池仍 ≥31 种。
 function placeObstacles(ratio) {
   if (!ratio) return;
   const reg = S.reg, want = Math.round(ratio * reg.size * reg.size);
-  // 8×8 上多块模板会被缩成「好几坨小墩」，反而更散；
-  // 小盘面只用 1~2 块的模板（一大片 / 两墩），成片感才立得住
+  const recent = Array.isArray(S.layoutHistory) ? S.layoutHistory : [];
+  // 判重必须按「铺出来的实际格子」而不是模板 id：不同比例模板在小盘取整后会落成同一片
   const cands = OB_LAYOUTS
     .filter(L => reg.size > 8 || L.rects.length <= 2)
-    .map(L => ({ L: L, n: obstacleCellsFor(reg, L, null).length }))
+    .map(L => {
+      const cells = obstacleCellsFor(reg, L, want);
+      const key = cells.map(c => c.y * 100 + c.x).sort((a, b) => a - b).join(',');
+      return { L: L, cells: cells, n: cells.length, key: key };
+    })
+    .filter(c => c.n > 0)
     .sort((a, b) => Math.abs(a.n - want) - Math.abs(b.n - want));
-  const pick = cands[Math.min(cands.length - 1, Math.floor(Math.random() * 2))];
-  for (const c of obstacleCellsFor(reg, pick.L, want)) S.board[c.y][c.x] = OBSTACLE;
+  const fresh = cands.filter(c => recent.indexOf(c.key) < 0);
+  // 万一某个盘面尺寸的可用池不足 30，宁可解禁最旧的，也不能卡住不出障碍
+  const pool = fresh.length ? fresh : cands;
+  const pick = pool[Math.min(pool.length - 1, Math.floor(Math.random() * Math.min(2, pool.length)))];
+  for (const c of pick.cells) S.board[c.y][c.x] = OBSTACLE;
+  S.layoutHistory = recent.concat([pick.key]).slice(-30);
+  saveLayoutHistory();
 }
 // 旧存档兼容：L1-20 本该全是普通块。老版本留下的暂存里可能还有宝石编码(0..5)，
 // 恢复时统一转成普通块，避免「没有收集目标的关卡却出现宝石方块」。
@@ -1759,8 +1831,8 @@ function startLevel(n) {
   S.loseHint = null; S.combo = 0; clearFx();
   const t = tierOf(n);
   if (t === 0) S.msg = '试着把方块拼成完整一行，填满就消！';
-  else if (t === 1) S.msg = '填满行或列就能消除得分，加油！';
-  else if (t === 2) S.msg = '区域变大啦！填满行列拿分过关！';
+  else if (t === 1) S.msg = '盘面变成 8×8 啦！填满行或列就能消除得分！';
+  else if (t === 2) S.msg = '10×10 大盘加障碍！绕开灰砖，填满行列拿分过关！';
   else if (S.active === 8) S.msg = '盘面收紧！收集 + 消除，突破分数线过关！';
   else S.msg = '收集 + 消除，突破分数线过关！';
   // v34 动态教程：只在首次挑战第 1 关时启动，完成后写 tutorialDone 永不再弹

@@ -24,16 +24,28 @@ const seen = new Set(); let dup = 0;
 for (const s of SHAPES) { const k=kk(s); if(seen.has(k)) dup++; seen.add(k); }
 ok('没有重复形状', dup===0, '重复 '+dup+' 个');
 
-// 连通性（4 邻接）
+// 连通性（8 邻接）：v42 设计稿含对角斜条（紫1/2 已归棕红），格与格斜着挨也算一块
 function connected(s){
   const set=new Set(s.map(c=>c[0]+','+c[1]));
   const st=[s[0]]; const vis=new Set([s[0].join(',')]);
   while(st.length){ const [x,y]=st.pop();
-    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const k=(x+dx)+','+(y+dy);
+    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]){ const k=(x+dx)+','+(y+dy);
       if(set.has(k)&&!vis.has(k)){vis.add(k);st.push([x+dx,y+dy]);} } }
   return vis.size===set.size;
 }
-ok('全部形状连通', SHAPES.every(connected));
+ok('全部形状连通（含对角）', SHAPES.every(connected));
+
+// v42：37 种形状按设计稿精确还原，分六类
+ok('形状池 37 个', SHAPES.length===37, '实际 '+SHAPES.length);
+const sizeHist={};
+for(const s of SHAPES) sizeHist[s.length]=(sizeHist[s.length]||0)+1;
+ok('格数分布 1~9 齐全', Object.keys(sizeHist).length===7, JSON.stringify(sizeHist));
+const diag = SHAPES.filter(s => {
+  if (s.length < 2) return false;
+  const set=new Set(s.map(c=>c[0]+','+c[1]));
+  return s.every(([x,y])=>![[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>set.has((x+dx)+','+(y+dy))));
+});
+ok('含 4 个纯对角斜条', diag.length===4, '实际 '+diag.length);
 
 // 坐标非负且从 0 开始
 ok('坐标规范（最小值为 0）', SHAPES.every(s=>Math.min(...s.map(c=>c[0]))===0&&Math.min(...s.map(c=>c[1]))===0));
@@ -62,7 +74,8 @@ function isL4(s){
 const l3 = SHAPES.filter(isL3), l4 = SHAPES.filter(isL4);
 console.log('识别到：3 格 L = '+l3.length+' 个，4 格 L = '+l4.length+' 个');
 ok('3 格 L 有 4 个朝向', l3.length===4);
-ok('4 格 L 有 8 个朝向', l4.length===8);
+// v42：设计稿的 4 格 L 只有 4 个朝向（另 4 个镜像朝向不在稿上）
+ok('4 格 L 有 4 个朝向', l4.length===4, '实际 '+l4.length);
 ok('Z/闪电不被误判成 L', SHAPES.filter(s=>s.length===4||s.length===5).every(s=>{
   const k=JSON.stringify(s);
   const zs=['[[0,0],[1,0],[1,1],[2,1]]','[[1,0],[2,0],[0,1],[1,1]]','[[1,0],[1,1],[0,1],[0,2]]','[[0,0],[0,1],[1,1],[1,2]]'];
@@ -80,13 +93,18 @@ ok('随机能抽到 3 格 L', (cnt.L3||0)>0);
 ok('随机能抽到 4 格 L', (cnt.L4||0)>0);
 ok('L 型总占比合理（>15%）', ((cnt.L3||0)+(cnt.L4||0))/N > 0.15, (((cnt.L3||0)+(cnt.L4||0))/N*100).toFixed(1)+'%');
 
-// v36：L1-6 教学关放开到 4 格含 L 型（有解发牌保证三手可消），不再只有直条
-g("S.level=2;"); const pool=g('eligibleShapes()');
-console.log('第 2 关候选池 '+pool.length+' 个，其中非直条 '+pool.filter(s=>!g('isStraightShape')(s)).length+' 个');
-ok('L1-6 候选池含 L/方块且不超过 4 格', pool.length > 0 && pool.every(s => s.length <= 4) &&
-  pool.some(s => !g('isStraightShape')(s)));
+// v42：不做格数分档，全关卡只按盘面尺寸过滤（巧巧：放得下就都可以）
+g("S.mode='level'; S.active=10; S.reg=regionOf(10); S.level=2;");
+const pool=g('eligibleShapes()');
+console.log('第 2 关(10×10) 候选池 '+pool.length+' 个，其中非直条 '+pool.filter(s=>!g('isStraightShape')(s)).length+' 个');
+ok('教学关也全开（只排 1×1）', pool.length===36 && pool.every(s=>s.length>=2), '实际 '+pool.length);
 g("S.level=8;"); const pool2=g('eligibleShapes()');
-ok('L7-10 候选池最多 4 格', pool2.length > 0 && pool2.every(s => s.length <= 4));
+ok('非教学关同尺寸全开（含 1×1）', pool2.length===37, '实际 '+pool2.length);
+g("S.active=6; S.reg=regionOf(6); S.level=2;"); const pool3=g('eligibleShapes()');
+ok('6×6 盘只按尺寸过滤（排除 3×3 等超宽）', pool3.length>0 && pool3.length<37 &&
+  pool3.every(s=>Math.max.apply(null,s.map(c=>c[0]))<6 && Math.max.apply(null,s.map(c=>c[1]))<6), '实际 '+pool3.length);
+g("S.active=10; S.reg=regionOf(10); S.level=25;"); const pool4=g('eligibleShapes()');
+ok('10×10 盘全开 37 种', pool4.length===37, '实际 '+pool4.length);
 
 // L 型能真正落到棋盘上
 g("S.scene='play'; startLevel(6);");
