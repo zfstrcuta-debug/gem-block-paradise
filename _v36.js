@@ -35,7 +35,7 @@ function ok(cond, name, detail) {
 }
 
 console.log('== 版本与形状池 ==');
-ok(run('GAME_VERSION') === 'v36', '版本号 v36');
+ok(run('GAME_VERSION') === 'v40', '版本号 v40');
 run('S.mode="level"; S.level=1; S.active=6; S.reg=regionOf(6);');
 const pool = run('JSON.stringify(eligibleShapes())');
 const shapes = JSON.parse(pool);

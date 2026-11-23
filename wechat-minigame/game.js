@@ -1,10 +1,11 @@
-/* 宝石方块乐园 - 微信小游戏 Canvas 2D 版 v36（教学关有解发牌：多样形状 + 三手可消） */
+/* 宝石方块乐园 - 微信小游戏 Canvas 2D 版 v40（拾取拖动静音，放置轻咔，消除叠木琴） */
 'use strict';
 
 // ---------- 配置 ----------
 const DW = 540, DH = 960;          // 设计画布
 const N = 10, CELL = 43, GAP = 4;  // 棋盘（格子尺寸不动）
 const BX = 35, BY = 232;           // 棋盘起点
+const CELL_HALF = CELL / (2 * (CELL + GAP));  // 格中心在格距中的比例，吸附边界要扣掉它
 const TRAY = 830;                  // 方块托盘中心 y
 const DRAG_LIFT = 58;              // 拖拽方块显示在手指上方，避免手指盖住落点预览
 const ITEM_Y = 708, ITEM_H = 52;   // 道具栏 y / 高
@@ -538,7 +539,7 @@ const ALBUM_VIEW_TOP = 190, ALBUM_VIEW_BOTTOM = 792;  // 可视区域（标题�
 function albumMaxScroll() { return Math.max(0, BEAD_PAGES.length * ALBUM_SEC_H - (ALBUM_VIEW_BOTTOM - ALBUM_VIEW_TOP)); }
 
 // ---------- 信息页：玩法说明 / 隐私政策 / 关于（全部简体） ----------
-const GAME_VERSION = 'v36';
+const GAME_VERSION = 'v40';
 const INFO_TABS = [
   { key: 'help', name: '玩法说明' },
   { key: 'privacy', name: '隐私政策' },
@@ -552,7 +553,8 @@ const INFO_PAGES = {
       '点选下方方块再点棋盘，或直接拖到棋盘上放置。',
       '凑满一整行或一整列即可消除得分。',
       '前 6 关发的方块都能拼成完整一行，试着摆在一起。',
-      '每次发的方块都保证至少有 2 个地方可以放。'
+      '每次发的方块都保证至少有 2 个地方可以放。',
+      '游戏页右上角喇叭可随时开关音效，设置会记住。'
     ] },
     { h: '两种模式', lines: [
       '闯关：前 20 关先练消除、没有收集目标；第 21 关起加入宝石收集。',
@@ -837,7 +839,8 @@ const S = {
   dailyModal: false,    // 每日任务弹窗是否打开
   tutorialDone: false,  // 新手教程只做一次（存档）
   tutorial: null,       // 教程态：{ step:0..3, t0 } —— 0 拿起 / 1 放置 / 2 消行 / 3 过关
-  sel: -1               // 点选放置：已选中的托盘块索引（-1=无）
+  sel: -1,              // 点选放置：已选中的托盘块索引（-1=无）
+  soundOn: true         // 音效开关：关卡页右上角喇叭，存档全端生效
 };
 
 // ---------- 存档 ----------
@@ -857,7 +860,12 @@ function loadSave() {
     S.streak = wx.getStorageSync('streak') || null;
     S.share = wx.getStorageSync('share') || null;
     S.tutorialDone = !!wx.getStorageSync('tutorialDone');
+    const snd = wx.getStorageSync('sound');
+    S.soundOn = snd !== false && snd !== 0;   // 只有明确关掉才是关，首次默认开
   } catch (e) { /* 首次无存档 */ }
+}
+function saveSound() {
+  try { wx.setStorageSync('sound', S.soundOn); } catch (e) { /* 忽略 */ }
 }
 function saveBest() {
   try {
@@ -1244,16 +1252,18 @@ function vibrateFor(n) {
 const SFX = (() => {
   try {
     if (typeof wx === 'undefined' || !wx.createInnerAudioContext) return null;
-    const mk = n => {
+    const mk = (n, vol) => {
       const a = wx.createInnerAudioContext();
       a.src = 'audio/' + n + '.wav';
-      a.volume = 0.7;
+      a.volume = vol == null ? 0.7 : vol;
       return a;
     };
-    return { w1: mk('wood1'), w2: mk('wood2'), w3: mk('wood3'), w4: mk('wood4'), w5: mk('wood5'), done: mk('done') };
+    // tap = 落子轻咔（远小于木琴音量）；w1..w5 = 消除木琴；done = 合成/过关双音
+    return { tap: mk('tap', 0.34), w1: mk('wood1'), w2: mk('wood2'), w3: mk('wood3'), w4: mk('wood4'), w5: mk('wood5'), done: mk('done') };
   } catch (e) { return null; }
 })();
 function sfx(name) {
+  if (!S.soundOn) return;              // 统一闸门：所有音效都从这里过，开关一处生效
   try {
     const a = SFX && SFX[name];
     if (!a) return;
@@ -1484,6 +1494,26 @@ function placeObstacles(ratio) {
   const pick = cands[Math.min(cands.length - 1, Math.floor(Math.random() * 2))];
   for (const c of obstacleCellsFor(reg, pick.L, want)) S.board[c.y][c.x] = OBSTACLE;
 }
+// 旧存档兼容：L1-20 本该全是普通块。老版本留下的暂存里可能还有宝石编码(0..5)，
+// 恢复时统一转成普通块，避免「没有收集目标的关卡却出现宝石方块」。
+function stripGemsIfNoGoal() {
+  if (S.mode !== 'level' || S.goal) return;
+  const fix = v => (v >= 0 && v < BLOCK_OFFSET) ? BLOCK_OFFSET + v : v;
+  const cleanBoard = b => {
+    if (!b) return;
+    for (let y = 0; y < b.length; y++) for (let x = 0; x < b[y].length; x++) {
+      const v = b[y][x];
+      if (v >= 0 && v < BLOCK_OFFSET) b[y][x] = fix(v);
+    }
+  };
+  const cleanPieces = ps => {
+    if (!Array.isArray(ps)) return;
+    for (const p of ps) for (const c of p.cells || [])
+      if (c.length >= 3 && c[2] >= 0 && c[2] < BLOCK_OFFSET) c[2] = fix(c[2]);
+  };
+  cleanBoard(S.board); cleanPieces(S.pieces);
+  if (S.snap) { cleanBoard(S.snap.board); cleanPieces(S.snap.pieces); }
+}
 // 快照不含 items（防还原刷道具）；收集进度深拷贝（防还原丢进度）
 function saveSnap() {
   S.snap = {
@@ -1502,6 +1532,7 @@ function restoreSnap() {
   S.combo = s.combo || 0;   // 还原一手，连击跟着退回去
   if (s.goal) S.goal = cloneGoal(s.goal);
   S.snap = null;
+  stripGemsIfNoGoal();
   return true;
 }
 // ---------- 暂停/暂存（接电话、切后台、杀进程都能回来续玩） ----------
@@ -1537,6 +1568,7 @@ function tryRestoreResume() {
   S.adUsed = r.adUsed || 0; S.adItems = r.adItems || [0, 0, 0];
   S.scene = 'play'; S.result = ''; S.over = false; S.drag = -1;
   S.sel = -1;
+  stripGemsIfNoGoal();   // 老版本暂存的宝石块在这里被洗成普通块
   S.lock = false; S.fx = null; S.particles = []; S.msg = '已接上上次进度，继续加油！';
   if (S.mode === 'level') S.lastLevel = Math.max(S.lastLevel, S.level);
   clearResume();
@@ -1752,6 +1784,7 @@ function place(idx, x0, y0) {
   S.score += p.cells.length;
   p.used = true;
   S.sel = -1;
+  sfx('tap');                 // v40：落子轻咔（拾取/拖动仍静音）；消除音随后由 startClearFx 叠加
   tutorialAdvance(2);         // 教程：玩家已放下第一块
   const res = clearLines();   // 分数/收集/连击在这里一次结算完
   if (res.n) tutorialAdvance(3);  // 教程：玩家亲眼看到一次消除
@@ -2452,12 +2485,13 @@ function drawObstacle(x, y, size, alpha) {
 function drawCellOf(p, c, x, y, size, alpha) {
   const ci = cellCI(p, c);
   if (isObstacle(ci)) drawObstacle(x, y, size, alpha);
-  else if (S.mode === 'level' && !isBlock(ci)) drawGem(ci, x, y, size, alpha);
+  // 只有「有收集目标」的关卡才把 0..5 画成宝石；L1-20 一律普通块（漏网数据也兜住）
+  else if (S.mode === 'level' && S.goal && !isBlock(ci)) drawGem(ci, x, y, size, alpha);
   else drawBlock(isBlock(ci) ? ci - BLOCK_OFFSET : ci, x, y, size, alpha);
 }
 function drawBoardCell(ci, x, y, size) {
   if (isObstacle(ci)) drawObstacle(x, y, size);
-  else if (S.mode === 'level' && !isBlock(ci)) drawGem(ci, x, y, size);
+  else if (S.mode === 'level' && S.goal && !isBlock(ci)) drawGem(ci, x, y, size);
   else drawBlock(isBlock(ci) ? ci - BLOCK_OFFSET : ci, x, y, size);
 }
 
@@ -2573,6 +2607,25 @@ function iconHome(x, y, s, color) {
   ctx.lineTo(cx + r * 0.72, cy + r * 0.85); ctx.lineTo(cx + r * 0.72, cy + r * 0.1); ctx.stroke();
   ctx.restore();
 }
+// 音效开关图标：只用圆、圆弧与圆角矩形，关态用两根旋转的圆角短条做静音叉
+function iconSound(x, y, s, color, on) {
+  ctx.save();
+  ctx.fillStyle = color; ctx.strokeStyle = color;
+  const cy = y + s / 2;
+  roundRectPath(ctx, x + s * 0.22, cy - s * 0.09, s * 0.16, s * 0.18, 2.5); ctx.fill();
+  ctx.beginPath(); ctx.arc(x + s * 0.38, cy, s * 0.15, -Math.PI * 0.5, Math.PI * 0.5); ctx.fill();
+  if (on) {
+    ctx.lineWidth = s * 0.055; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(x + s * 0.38, cy, s * 0.22, -0.72, 0.72); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x + s * 0.38, cy, s * 0.31, -0.72, 0.72); ctx.stroke();
+  } else {
+    ctx.translate(x + s * 0.64, cy); ctx.rotate(Math.PI * 0.25);
+    roundRectPath(ctx, -s * 0.022, -s * 0.16, s * 0.044, s * 0.32, s * 0.02); ctx.fill();
+    ctx.rotate(-Math.PI * 0.5);
+    roundRectPath(ctx, -s * 0.022, -s * 0.16, s * 0.044, s * 0.32, s * 0.02); ctx.fill();
+  }
+  ctx.restore();
+}
 function navButton(kind, x, y) {
   const cx = x + 20, cy = y + 20;
   ctx.save();
@@ -2583,6 +2636,7 @@ function navButton(kind, x, y) {
   ctx.strokeStyle = UI.outline; ctx.lineWidth = 1.4;
   ctx.beginPath(); ctx.arc(cx, cy, 19.3, 0, Math.PI * 2); ctx.stroke();
   if (kind === 'retry') iconRetry(x, y, 40, UI.primaryDeep);
+  else if (kind === 'sound') iconSound(x, y, 40, UI.primaryDeep, S.soundOn);
   else iconHome(x, y, 40, UI.primaryDeep);
 }
 
@@ -2806,15 +2860,18 @@ function drawBeadPattern(bp, x, y, size, lit, mode) {
   drawPuzzleArt(bp, x, y, size, lit, mode);
 }
 
-function piece(p, cx, cy, unit) {
+// step 可与 unit 不同：托盘用紧凑 step=unit，拖拽时必须用棋盘的 CELL+GAP，
+// 否则预览的格距比落点小，松手瞬间方块会「撑开半格」，看起来就像放偏了。
+function piece(p, cx, cy, unit, step) {
+  step = step || unit;
   let minX = 99, maxX = -99, minY = 99, maxY = -99;
   for (const c of p.cells) {
     minX = Math.min(minX, c[0]); maxX = Math.max(maxX, c[0]);
     minY = Math.min(minY, c[1]); maxY = Math.max(maxY, c[1]);
   }
-  const sx = cx - (maxX - minX + 1) * unit / 2;
-  const sy = cy - (maxY - minY + 1) * unit / 2;
-  for (const c of p.cells) drawCellOf(p, c, sx + (c[0] - minX) * unit + 1, sy + (c[1] - minY) * unit + 1, unit - 2);
+  const sx = cx - ((maxX - minX) * step + unit) / 2;
+  const sy = cy - ((maxY - minY) * step + unit) / 2;
+  for (const c of p.cells) drawCellOf(p, c, sx + (c[0] - minX) * step, sy + (c[1] - minY) * step, unit);
 }
 // v34：手指按住的位置其实是「方块中心」，方块显示在手指上方 DRAG_LIFT，
 // 所以吸附与边界判定都要用上移后的锚点，否则预览和实际落点差一格。
@@ -2828,9 +2885,11 @@ function snapOrigin(p, pos) {
   const w = maxX - minX + 1, h = maxY - minY + 1;
   const a = dragAnchor(pos);
   const fx = (a.x - BX) / (CELL + GAP), fy = (a.y - BY) / (CELL + GAP);
+  // 吸附边界必须落在「两格之间」。格中心比格左边多 CELL/2，原公式少了这段，
+  // 导致手指从格中心偏 2px 就跳格（实测），看起来就是「放不准」。
   return {
-    x: Math.round(fx - (w - 1) / 2) - minX,
-    y: Math.round(fy - (h - 1) / 2) - minY
+    x: Math.round(fx - CELL_HALF - (w - 1) / 2) - minX,
+    y: Math.round(fy - CELL_HALF - (h - 1) / 2) - minY
   };
 }
 function inBoardRaw(pos) {
@@ -2841,22 +2900,36 @@ function inBoard(pos) { return inBoardRaw(dragAnchor(pos)); }
 // 就近吸附：落点不合法时，在 ±2 格内找最近的可放位置（小孩也能轻松放下）
 function nearFit(cells, x0, y0) {
   if (canPlace(cells, x0, y0)) return { x: x0, y: y0, snapped: false };
-  for (let r = 1; r <= 2; r++) {
-    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-      if (canPlace(cells, x0 + dx, y0 + dy)) return { x: x0 + dx, y: y0 + dy, snapped: true };
-    }
+  // 按真实距离排序，而不是扫描顺序——否则会「就近吸附」到斜角那格，比手放的位置还偏
+  const cand = [];
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    if (!dx && !dy) continue;
+    if (canPlace(cells, x0 + dx, y0 + dy)) cand.push({ x: x0 + dx, y: y0 + dy, d: dx * dx + dy * dy });
   }
-  return null;
+  if (!cand.length) return null;
+  cand.sort((a, b) => a.d - b.d);   // 同距离时先上后下、先左后右，符合直觉
+  return { x: cand[0].x, y: cand[0].y, snapped: true };
 }
 function drawGhost(p, gx, gy, ok) {
   for (const c of p.cells) {
-    const px = BX + (gx + c[0]) * (CELL + GAP), py = BY + (gy + c[1]) * (CELL + GAP);
+    const x = gx + c[0], y = gy + c[1];
+    const px = BX + x * (CELL + GAP), py = BY + y * (CELL + GAP);
     if (px < BX || py < BY || px >= BX + N * (CELL + GAP) || py >= BY + N * (CELL + GAP)) continue;
-    drawCellOf(p, c, px - 3, py - 3, CELL + 6, 0.55);
-    // 深盘上要亮一档的绿/红，才压得住深色底
-    ctx.strokeStyle = ok ? '#8FC0A6' : '#D9A29D'; ctx.lineWidth = 3;
-    roundRectPath(ctx, px - 2.5, py - 2.5, CELL + 5, CELL + 5, 8); ctx.stroke();
+    const legal = ok && inRegion(x, y, S.reg) && S.board[y] && S.board[y][x] === EMPTY;
+    if (legal) {
+      // 可放：半透明方块 + 绿框，跟落点像素完全对齐
+      drawCellOf(p, c, px, py, CELL, 0.55);
+      ctx.strokeStyle = '#8FC0A6'; ctx.lineWidth = 3;
+      roundRectPath(ctx, px - 2.5, py - 2.5, CELL + 5, CELL + 5, 8); ctx.stroke();
+    } else {
+      // 锁区/占用格：只留一圈淡红虚线空框，绝不画方块本体
+      // —— 画出彩色方块会让人误以为「已经移进去了」
+      ctx.save();
+      ctx.strokeStyle = 'rgba(217,162,157,0.62)'; ctx.lineWidth = 2;
+      if (ctx.setLineDash) ctx.setLineDash([7, 5]);
+      roundRectPath(ctx, px - 3, py - 3, CELL + 6, CELL + 6, 9); ctx.stroke();
+      ctx.restore();
+    }
   }
 }
 
@@ -3628,6 +3701,7 @@ function drawGoalBar() {
 }
 function drawHUD() {
   drawBackdrop();
+  navButton('sound', 394, 18);   // 音效开关：一移动就响会吵，随时可关
   navButton('retry', 442, 18);
   navButton('home', 490, 18);
   // 关卡名做主角：居中大标题 + 一行辅助信息
@@ -3988,9 +4062,12 @@ function drawGame() {
       if (fit) drawGhost(p, fit.x, fit.y, true);
       else drawGhost(p, o.x, o.y, false);
     }
-    // v34：方块显示在手指上方 58px，手指不再盖住落点
+    // 方块浮在手指上方 58px；用棋盘真实格距画，预览与落点像素对齐
     const a = dragAnchor(S.pos);
-    piece(p, a.x, a.y, CELL - 3);
+    ctx.save();
+    ctx.shadowColor = 'rgba(46,44,41,0.22)'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 5;
+    piece(p, a.x, a.y, CELL, CELL + GAP);
+    ctx.restore();
   }
   // 提示是玩家每局都要读的：归到内容小字档，但颜色提到正文级，别淡成装饰
   textCenter(S.msg, 270, 918, TYPE.body, UI.onSurface, '600');
@@ -4186,7 +4263,12 @@ wx.onTouchStart(e => {
     } else if (hit(t.x, t.y, b2.x, b2.y, b2.w, b2.h)) toMenu();
     draw(); return;
   }
-  // 局内导航：重试 / 回主画面
+  // 局内导航：音效开关 / 重试 / 回主画面
+  if (hit(t.x, t.y, 394, 18, 40, 40)) {
+    S.soundOn = !S.soundOn; saveSound();
+    if (S.soundOn) sfx('w1');   // 打开时一声确认；关掉时保持安静
+    draw(); return;
+  }
   if (hit(t.x, t.y, 442, 18, 40, 40)) {
     if (S.mode === 'level') retryLevel(); else startEndless();
     draw(); return;
@@ -4215,7 +4297,7 @@ wx.onTouchStart(e => {
       if (!p.used && t.x >= 90 + i * 180 - 90 && t.x <= 90 + i * 180 + 90) {
         S.drag = i; S.sel = i; S.pos = t;
         tutorialAdvance(1);   // 教程：玩家已拿起方块
-        sfx('w1');            // 拾取轻响，确认「拿到了」
+        // v40：拾取/拖动全程静音；落子轻咔在 place()，消除木琴在 startClearFx()
         break;
       }
     }
