@@ -1,4 +1,4 @@
-/* 宝石方块乐园 - 微信小游戏 Canvas 2D 版 v34（拖拽手感 + 小孩化难度 + 全局防死局发牌 + 一次性动态教程） */
+/* 宝石方块乐园 - 微信小游戏 Canvas 2D 版 v35（全站文案体检：事实校正 + 术语统一 + 语气优化） */
 'use strict';
 
 // ---------- 配置 ----------
@@ -538,7 +538,7 @@ const ALBUM_VIEW_TOP = 190, ALBUM_VIEW_BOTTOM = 792;  // 可视区域（标题�
 function albumMaxScroll() { return Math.max(0, BEAD_PAGES.length * ALBUM_SEC_H - (ALBUM_VIEW_BOTTOM - ALBUM_VIEW_TOP)); }
 
 // ---------- 信息页：玩法说明 / 隐私政策 / 关于（全部简体） ----------
-const GAME_VERSION = 'v34';
+const GAME_VERSION = 'v35';
 const INFO_TABS = [
   { key: 'help', name: '玩法说明' },
   { key: 'privacy', name: '隐私政策' },
@@ -556,11 +556,11 @@ const INFO_PAGES = {
     { h: '两种模式', lines: [
       '闯关：前 20 关先练消除、没有收集目标；第 21 关起加入宝石收集。',
       '21 关后闯关方块由宝石与普通块混搭，只有宝石计入收集目标。',
-      '无尽：尽量拿高分，分数进入好友排行榜。'
+      '无尽：尽量拿高分，刷新自己的最高纪录。'
     ] },
     { h: '计分规则', lines: [
       '放置方块：每格 +1 分',
-      '消除一行或一列：+10 分',
+      '消除一行或一列：+10 分起（连消更多）',
       '收集目标宝石：每颗 +5 分'
     ] },
     { h: '通关条件', lines: [
@@ -571,7 +571,7 @@ const INFO_PAGES = {
       '大槌子：自动敲掉周围空格最多的已填格。',
       '还原：撤回最近一次放置，连同消行一起倒回。',
       '刷新：换掉托盘上全部尚未使用的方块。',
-      '道具分三种有效期：拼图合成奖励永久保留；通关、每日奖励当天有效；看广告获得的道具仅本局有效。',
+      '道具分三种有效期：拼图合成奖励永久保留；通关、每日奖励和主画面广告福利当天有效；局内广告道具仅本局有效。',
       '消耗时优先使用即将过期的道具，不用担心浪费。'
     ] },
     { h: '死局与复活', lines: [
@@ -581,7 +581,7 @@ const INFO_PAGES = {
       '闯关进度会保存在本机，下次进入直接到最新一关。'
     ] },
     { h: '拼图收藏', lines: [
-      '首次通关卡获得拼图碎片：每局 +1 片，一张图共 16 片。',
+      '每关首次通关获得拼图碎片 +1 片，一张图共 16 片。',
       '每攒满 16 片自动合成当前图样，并奖励道具 ×3（永久保留）。',
       '集齐一整篇 8 个图样，再额外奖励道具 ×5。',
       '共 8 篇 64 个图样，收集进度自动保存在本机。',
@@ -592,26 +592,26 @@ const INFO_PAGES = {
     { h: '隐私政策', lines: [
       '本游戏为单机休闲游戏，存档保存在您的设备本地。',
       '保存数据：最高分、通关记录、拼图收藏、道具领取日期。',
-      '好友排行榜使用微信开放数据域能力，仅展示好友的公开分数。',
-      '游戏内广告为激励视频广告，由微信平台提供。',
+      '好友排行榜仅展示微信好友的公开分数。',
+      '游戏内提供激励视频广告，看不看由你，不影响通关。',
       '我们不会收集您的姓名、手机号、位置等个人敏感信息。',
-      '清除微信小游戏数据后，本地存档将无法恢复。'
+      '清除游戏数据后，本地存档将无法恢复。'
     ] },
     { h: '用户协议', lines: [
       '欢迎使用宝石方块乐园，请合理使用本游戏。',
       '不得利用外挂、脚本等方式破坏游戏公平性。',
       '游戏内道具与广告奖励为虚拟内容，不具备现金价值。',
-      '如您不同意上述条款，请停止使用本游戏。'
+      '继续使用即表示您同意以上条款。'
     ] }
   ],
   about: [
     { h: '关于本游戏', lines: [
       '宝石方块乐园 ' + GAME_VERSION,
-      '原创方块消除 + 拼图收集小游戏。',
+      '一款安静的方块消除 + 拼图收集小游戏，碎片慢慢攒，图鉴慢慢填。',
       '所有拼图图样均为原创通用物品，不涉及第三方版权。'
     ] },
     { h: '问题反馈', lines: [
-      '如有问题或建议，请通过微信小游戏客服渠道反馈。'
+      '如有问题或建议，请通过小游戏客服渠道反馈。'
     ] }
   ]
 };
@@ -1449,7 +1449,7 @@ function tryRestoreResume() {
   S.adUsed = r.adUsed || 0; S.adItems = r.adItems || [0, 0, 0];
   S.scene = 'play'; S.result = ''; S.over = false; S.drag = -1;
   S.sel = -1;
-  S.lock = false; S.fx = null; S.particles = []; S.msg = '欢迎回来，继续加油！';
+  S.lock = false; S.fx = null; S.particles = []; S.msg = '已接上上次进度，继续加油！';
   if (S.mode === 'level') S.lastLevel = Math.max(S.lastLevel, S.level);
   clearResume();
   return true;
@@ -1516,7 +1516,7 @@ function loginStreak() {
     if (cmsg) extra = ' · 含合成奖励';
     else if (currentBeadIdx() < BEAD_TOTAL) extra = ' · 碎片 +1';
   }
-  S.streakReward = '今日已发 道具 ×' + rn + extra;
+  S.streakReward = '今日已发道具 ×' + rn + extra;
   saveStreak(); saveItems();
 }
 // 道具库存：永久 items / 当日 dayItems / 广告 adItems；显示与消耗都取三者合计
@@ -1538,7 +1538,7 @@ function saveItems() {
 // 只送道具、不送拼图碎片：碎片唯一来源仍是「首次通关」，这条不能松
 const DAILY_TASKS = [
   { id: 'lines', need: 8, name: '消除 8 条线' },
-  { id: 'gems', need: 30, name: '消除 30 颗宝石' },
+  { id: 'gems', need: 30, name: '消除 30 格方块' },
   { id: 'games', need: 2, name: '完成 2 局游戏' }
 ];
 const DAILY_REWARD = 3;   // 全部完成：三种道具各 +1（当日有效）
@@ -1590,7 +1590,7 @@ function grantItems() {
     S.lastDaily = t;
     try { wx.setStorageSync('lastDaily', t); } catch (e) { /* 忽略 */ }
     S.dayItems[Math.floor(Math.random() * 3)] = 1;
-    S.msg = '每日奖励！额外获得 1 个道具～';
+    S.msg = '每日奖励！三种道具各 +1～';
   }
   if (S.dayItems.every(v => v <= 0)) S.dayItems[Math.floor(Math.random() * 3)] = 1; // 保底开局 1 个
   saveItems();
@@ -1605,7 +1605,7 @@ function startEndless() {
   S.adUsed = 0; // 每局重置广告次数
   S.adLimit = 10; // 无尽：广告上限 10 次
   S.loseHint = null; S.combo = 0; clearFx();
-  S.msg = '拖动方块，尽量拿高分！';
+  S.msg = '拖动或点选方块，尽量拿高分！';
   clearResume();
   grantItems(); spawn();
 }
@@ -1657,7 +1657,7 @@ function toMenu() {
 }
 function place(idx, x0, y0) {
   const p = S.pieces[idx];
-  if (!canPlace(p.cells, x0, y0)) { S.msg = '这里放不下，再试一次！'; return; }
+  if (!canPlace(p.cells, x0, y0)) { S.msg = '这里放不下，换个位置试试！'; return; }
   saveSnap();
   for (const c of p.cells) S.board[y0 + c[1]][x0 + c[0]] = cellCI(p, c);
   S.score += p.cells.length;
@@ -1708,7 +1708,7 @@ function addBeadShard() {
     if (pageDone) {
       for (let i = 0; i < 5; i++) S.items[i % 3] += 1;   // 集齐一篇额外道具 ×5
       S.pageDoneFlag = true;   // 落点后触发礼花（B4）
-      return '合成「' + doneName + '」！' + BEAD_PAGES[BEADS[doneIdx].page].name + '篇集齐，道具 ×8！';
+      return '合成「' + doneName + '」！道具 ×3，' + BEAD_PAGES[BEADS[doneIdx].page].name + '篇集齐再送 ×5';
     }
     return '合成「' + doneName + '」！道具 ×3，继续收集下一图样～';
   }
@@ -1923,7 +1923,7 @@ function useItem(i) {
   } else if (i === I_HAMMER) {
     if (inLoseHint) {
       // 死局态：一片 3×3 才有意义（单格敲了等于没敲）
-      saveSnap(); consumeItem(i); rescueOpen(1); note = '大槌子敲开一片'; acted = true;
+      saveSnap(); consumeItem(i); rescueOpen(1); note = '大槌子清出一片空位'; acted = true;
     } else {
       const t = hammerBest();
       if (t.x < 0) { S.msg = '棋盘上没有可敲的方块'; draw(); return; }
@@ -3154,7 +3154,7 @@ function drawMenu() {
   modeTile(MENU.tiles[0], {
     top: '#FBF3EB', bot: '#F2E6DA', border: 'rgba(196,166,144,0.42)',
     badge1: '#D6A98C', badge2: '#B98063', icon: iconPlay,
-    name: '闯关模式', desc: '收集与分数达标过关',
+    name: '闯关模式', desc: '消行得分，逐关进阶',
     pill: '下一关 · 第 ' + resumeLevel() + ' 关'
   });
   modeTile(MENU.tiles[1], {
@@ -3395,9 +3395,9 @@ function drawRank() {
   panel(28, 100, 484, 630, UI.surface, UI.outline);
   if (sharedCanvas) {
     try { ctx.drawImage(sharedCanvas, 30, 102, 480, 626); }
-    catch (e) { text('排行榜载入失败', 200, 400, 16, UI.hint); }
+    catch (e) { text('排行榜暂时开小差了', 200, 400, 16, UI.hint); }
   } else {
-    text('需正式 AppID 才能显示好友榜', 150, 400, 16, UI.hint);
+    text('好友榜只在微信里显示', 168, 400, 16, UI.hint);
   }
   button(160, 758, 220, 48, 'text', '返回', 17);
 }
@@ -3665,7 +3665,7 @@ function drawLose() {
   } else {
     const canAd = adAvailable();
     button(b0.x, b0.y, b0.w, b0.h, canAd ? 'primary' : 'secondary', canAd ? '看广告复活' : '复活已用完', 14);
-    button(b1.x, b1.y, b1.w, b1.h, 'secondary', '失败重来', 16);
+    button(b1.x, b1.y, b1.w, b1.h, 'secondary', '再玩一局', 16);
     button(b2.x, b2.y, b2.w, b2.h, 'text', '回主画面', 16);
   }
 }
@@ -3676,7 +3676,7 @@ function drawAdDialog() {
   dialogCard(x, y, w, h, 30);
   const type = S.pendingAd.type;
   const title = type === 'revive'
-    ? (S.mode === 'level' ? '看广告复活' : '看广告续命')
+    ? '看广告复活'
     : type === 'menuReward' ? '今日广告福利' : '看广告领道具';
   const sub = type === 'revive'
     ? (S.mode === 'level' ? '系统敲掉两片方块，本局继续' : '清掉半盘，分数保留')
@@ -3801,10 +3801,10 @@ function drawLoseHint() {
     bigButton(L.cta.x, L.cta.y, L.cta.w, L.cta.h, '本局广告次数已用完，试试道具或重试', null, true);
   }
   button(L.b1.x, L.b1.y, L.b1.w, L.b1.h, 'text', '不用，结束本局', 15);
-  button(L.b2.x, L.b2.y, L.b2.w, L.b2.h, 'secondary', S.mode === 'level' ? '重试本关' : '重新开始', 16);
+  button(L.b2.x, L.b2.y, L.b2.w, L.b2.h, 'secondary', S.mode === 'level' ? '重试本关' : '再玩一局', 16);
 
   // 卡外提示压在深色遮罩上：原来用深墨字，等于写在没有底的地方，全糊 → 改浅字
-  textCenter('本局已得 ' + S.score + ' 分，真的要放弃吗？', cx, 632, 13, 'rgba(255,250,242,0.94)', '', 0, true);
+  textCenter('本局已得 ' + S.score + ' 分，确定要结束吗？', cx, 632, 13, 'rgba(255,250,242,0.94)', '', 0, true);
 }
 // ---------- v34 一次性动态教程 ----------
 // 只用圆与圆角矩形 + 呼吸光圈，跟着玩家动作推进；看完/跳过后写 tutorialDone，永不再弹。
@@ -3836,7 +3836,7 @@ function drawTutorial() {
     tip = '③ 把一整行或一整列填满，就会消除得分！';
   } else {
     cx = 466; cy = 140;
-    tip = '④ 分数达到右上角目标就过关啦！';
+    tip = '④ 分数达标就过关啦！';
   }
   // 呼吸光圈：柔边 + 一次 pulse，绝不硬闪
   ctx.save();
@@ -4157,7 +4157,7 @@ wx.onTouchEnd(() => {
     const fit = nearFit(p.cells, o.x, o.y);
     S.drag = -1;
     if (fit) place(idx, fit.x, fit.y);
-    else { S.sel = idx; S.msg = '这里放不下，换个位置或点选再放～'; }
+    else { S.sel = idx; S.msg = '这里放不下，换个位置试试！'; }
   } else {
     // 松手在棋盘外：保留选中态，让玩家改用「点一下棋盘」放置，不惩罚误触
     S.drag = -1; S.sel = idx;
