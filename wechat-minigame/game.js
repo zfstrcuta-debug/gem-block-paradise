@@ -1,4 +1,4 @@
-/* 宝石方块乐园 - 微信小游戏 Canvas 2D 版 v32（广告福利盲盒化 + 接电话/切后台/杀进程暂存续玩） */
+/* 宝石方块乐园 - 微信小游戏 Canvas 2D 版 v34（拖拽手感 + 小孩化难度 + 全局防死局发牌 + 一次性动态教程） */
 'use strict';
 
 // ---------- 配置 ----------
@@ -6,6 +6,7 @@ const DW = 540, DH = 960;          // 设计画布
 const N = 10, CELL = 43, GAP = 4;  // 棋盘（格子尺寸不动）
 const BX = 35, BY = 232;           // 棋盘起点
 const TRAY = 830;                  // 方块托盘中心 y
+const DRAG_LIFT = 58;              // 拖拽方块显示在手指上方，避免手指盖住落点预览
 const ITEM_Y = 708, ITEM_H = 52;   // 道具栏 y / 高
 const ITEM_X = [35, 195, 355], ITEM_W = 150;
 const ITEM_NAMES = ['大槌子', '还原', '刷新'];
@@ -537,7 +538,7 @@ const ALBUM_VIEW_TOP = 190, ALBUM_VIEW_BOTTOM = 792;  // 可视区域（标题�
 function albumMaxScroll() { return Math.max(0, BEAD_PAGES.length * ALBUM_SEC_H - (ALBUM_VIEW_BOTTOM - ALBUM_VIEW_TOP)); }
 
 // ---------- 信息页：玩法说明 / 隐私政策 / 关于（全部简体） ----------
-const GAME_VERSION = 'v32';
+const GAME_VERSION = 'v34';
 const INFO_TABS = [
   { key: 'help', name: '玩法说明' },
   { key: 'privacy', name: '隐私政策' },
@@ -548,13 +549,13 @@ const INFO_LINE_H = 27, INFO_SEC_GAP = 12;          // 行高 / 段间距
 const INFO_PAGES = {
   help: [
     { h: '基本玩法', lines: [
-      '选择下方方块，拖到棋盘上放置。',
+      '点选下方方块再点棋盘，或直接拖到棋盘上放置。',
       '凑满一整行或一整列即可消除得分。',
-      '棋盘上放不下任何方块时，本局结束。'
+      '每次发的方块都保证至少有 2 个地方可以放。'
     ] },
     { h: '两种模式', lines: [
-      '闯关：区域逐关变大，需同时达成分数线与宝石收集目标。',
-      '闯关方块由宝石与普通块混搭，只有宝石计入收集目标。',
+      '闯关：前 20 关先练消除、没有收集目标；第 21 关起加入宝石收集。',
+      '21 关后闯关方块由宝石与普通块混搭，只有宝石计入收集目标。',
       '无尽：尽量拿高分，分数进入好友排行榜。'
     ] },
     { h: '计分规则', lines: [
@@ -563,7 +564,7 @@ const INFO_PAGES = {
       '收集目标宝石：每颗 +5 分'
     ] },
     { h: '通关条件', lines: [
-      '分数线与宝石收集必须同时达成，才算过关。',
+      '第 1–20 关：分数达标即可过关；第 21 关起：分数线与宝石收集需同时达成。',
       '只有首次通关会发放拼图碎片与道具，重复挑战不再发放。'
     ] },
     { h: '道具说明', lines: [
@@ -705,18 +706,20 @@ const BEAD_TOTAL = BEADS.length;
 const BEAD_NEED = 16;   // 每个图样需攒 16 片碎片（图样为 4×4 共 16 小格，一片一格）
 
 // ---------- 难度分档 ----------
-// L1-4: 6×6 练习无收集；L5-10: 8×8 每种20颗；L11-20: 10×10+障碍 每种30颗；L21+: 加难
+// v34：收集目标整体后移到 L21+，前 20 关是「先学会放方块」的平缓阶梯。
+// L1-6: 6×6 只给直条 1-3 格；L7-10: 6×6 最多 4 格；L11-20: 10×10 轻障碍；L21+: 收集+障碍+盘面交替
 function tierOf(n) {
-  if (n <= 4) return 0;
+  if (n <= 6) return 0;
   if (n <= 10) return 1;
   if (n <= 20) return 2;
   return 3;
 }
 function activeSizeOf(n) {
   const t = tierOf(n);
-  if (t <= 2) return t === 0 ? 6 : t === 1 ? 8 : 10;
-  // C5：L21+ 的难度不再只推数字——盘面在 10×10 与 8×8 之间交替，
-  // 收紧的关卡逼玩家改变摆放习惯（8×8 填行更容易但空间更少，是另一种压力）
+  // v34：前 10 关一律 6×6（小孩也能一眼看出哪里能放），L11 才开 10×10
+  if (t <= 1) return 6;
+  if (t === 2) return 10;
+  // C5：L21+ 盘面在 10×10 与 8×8 之间交替
   return n % 2 === 0 ? 10 : 8;
 }
 // 分数线按「自动对局模拟」的可达上限重标：
@@ -725,8 +728,9 @@ function activeSizeOf(n) {
 // 新曲线缓慢上升并封顶，后期难度交给收集目标与障碍物，而不是分数线数字。
 function levelTarget(n) {
   const t = tierOf(n);
-  if (t === 0) return 60 + n * 20;                    // L1-4:  80/100/120/140
-  if (t === 1) return 150 + (n - 5) * 8;              // L5-10: 150~190
+  // v34 小孩化：6×6 消一行 = +10 分基准，分数线约 4~8 行的量
+  if (t === 0) return 30 + n * 10;                    // L1-6:  40/50/60/70/80/90
+  if (t === 1) return 100 + (n - 7) * 10;             // L7-10: 100/110/120/130
   if (t === 2) return 220 + (n - 11) * 5;             // L11-20: 220~265
   // C5：L21+ 收紧盘面（8×8）的关卡同步下调分数线，难度交给盘面尺寸而不是数字
   const base = 250 + Math.min(30, (n - 21) * 2);
@@ -737,8 +741,8 @@ function levelTarget(n) {
 // 上限 26%：再往上就真的没地方落子，复活和道具也救不回来。
 function obstacleRatioOf(n) {
   const t = tierOf(n);
-  if (t === 0) return 0;                              // L1-4 纯练习，不摆障碍
-  if (t === 1) return 0.17;                           // L5-10（8×8）：约 10~12 格
+  // v34：前 10 关零障碍（小孩阶段只学放方块与消行）
+  if (t <= 1) return 0;
   if (t === 2) return 0.16 + (n - 11) * 0.006;        // L11-20：约 16% → 21%
   // C5：8×8 收紧关的障碍封顶 22%（小盘上 26% 会真的没有落子空间）
   const r = Math.min(0.26, 0.22 + (n - 21) * 0.004);
@@ -829,7 +833,10 @@ const S = {
   sharePulse: 0,        // 分享到账的浮动反馈时间戳
   loseHint: null,       // 死局提示弹窗：'item'=道具提示 | 'still'=敲完仍死局 | null
   daily: null,          // 每日任务进度 {date,lines,gems,games,claimed}
-  dailyModal: false     // 每日任务弹窗是否打开
+  dailyModal: false,    // 每日任务弹窗是否打开
+  tutorialDone: false,  // 新手教程只做一次（存档）
+  tutorial: null,       // 教程态：{ step:0..3, t0 } —— 0 拿起 / 1 放置 / 2 消行 / 3 过关
+  sel: -1               // 点选放置：已选中的托盘块索引（-1=无）
 };
 
 // ---------- 存档 ----------
@@ -848,6 +855,7 @@ function loadSave() {
     S.menuAd = wx.getStorageSync('menuAd') || null;
     S.streak = wx.getStorageSync('streak') || null;
     S.share = wx.getStorageSync('share') || null;
+    S.tutorialDone = !!wx.getStorageSync('tutorialDone');
   } catch (e) { /* 首次无存档 */ }
 }
 function saveBest() {
@@ -909,15 +917,13 @@ function beadAudit() {
 }
 
 // ---------- 关卡收集目标 ----------
-// L1-4 无收集；L5-10 抽 2-3 种每种 12 颗；L11+ 抽 3-4 种每种 18 颗
-// 原参数（2-3 种×20 / 4-6 种×30）远超一局能消出的目标宝石数量，L11 之后收集条件等于锁死
+// v34：收集整体后移——L1-20 完全没有收集目标，只考消行与分数；L21+ 才开始收集。
 function makeGoal(n) {
   const t = tierOf(n);
-  if (t === 0) return null;
-  const kinds = t === 1 ? 2 + Math.floor(Math.random() * 2)   // 2~3
-                        : 3 + Math.floor(Math.random() * 2);  // 3~4
-  // C5：L21+ 每种需求量缓升（18 → 24 封顶），难度多一个维度而不是只推分数
-  const need = t === 1 ? 12 : t === 2 ? 18 : 18 + Math.min(6, n - 21);
+  if (t <= 2) return null;                            // L1-20：无收集
+  const kinds = 3 + Math.floor(Math.random() * 2);    // 3~4
+  // C5：L21+ 每种需求量缓升（18 → 24 封顶）
+  const need = 18 + Math.min(6, n - 21);
   const pool = shuffleArr([0, 1, 2, 3, 4, 5]);
   const goal = {};
   for (let i = 0; i < kinds; i++) goal[pool[i]] = { need: need, got: 0 };
@@ -944,11 +950,19 @@ function shuffleArr(a) {
 }
 function shapeW(shape) { return Math.max.apply(null, shape.map(c => c[0])) + 1; }
 function shapeH(shape) { return Math.max.apply(null, shape.map(c => c[1])) + 1; }
-// 每格自带编码：闯关=宝石(0..5)与普通块(6..11)混搭；无尽=整块单色普通方块
-// 候选池先过滤：宽高不超开放区；L1-4 练习区再限 ≤4 格（排除 1×5 / 3×3）
+// 每格自带编码：闯关 21+=宝石普通混搭；闯关 1-20 与无尽=整块单色普通方块
+// v34 形状池跟盘面配套：6×6 只发能放得下的小块，别给孩子发 1×5 / 3×3 这种「没位置放」的块
+function isStraightShape(s) { return shapeW(s) === 1 || shapeH(s) === 1; }
 function eligibleShapes() {
-  const maxCells = (S.mode === 'level' && tierOf(S.level) === 0) ? 4 : 99;
-  return SHAPES.filter(s => shapeW(s) <= S.active && shapeH(s) <= S.active && s.length <= maxCells);
+  let maxCells = 99;
+  let straightOnly = false;
+  if (S.mode === 'level') {
+    const t = tierOf(S.level);
+    if (t === 0) { maxCells = 3; straightOnly = true; }   // L1-6：只有 1×1 / 1×2 / 1×3
+    else if (t === 1) maxCells = 4;                        // L7-10：最多 4 格（排除 1×5 / 3×3）
+  }
+  return SHAPES.filter(s => shapeW(s) <= S.active && shapeH(s) <= S.active &&
+    s.length <= maxCells && (!straightOnly || isStraightShape(s)));
 }
 // 闯关方块混搭：k 格里随机 1..k 颗宝石（其余普通块），宝石取 2~3 种颜色
 function mixCellCodes(k) {
@@ -969,8 +983,13 @@ function randPiece() {
   const shape = pool[Math.floor(Math.random() * pool.length)] || SHAPES[0];
   const k = shape.length;
   let cis;
-  if (S.mode === 'level') {
+  // v34：只有「有收集目标」的关卡（L21+）才混搭宝石；L1-20 与无尽都是纯普通块。
+  // 注意闯关模式 0..5 会画成宝石，所以闯关无目标关也要走 BLOCK_OFFSET 编码。
+  if (S.mode === 'level' && S.goal) {
     cis = mixCellCodes(k);
+  } else if (S.mode === 'level') {
+    const ci = BLOCK_OFFSET + Math.floor(Math.random() * COLORS.length);
+    cis = shape.map(() => ci);
   } else {
     const ci = Math.floor(Math.random() * COLORS.length);
     cis = shape.map(() => ci);
@@ -998,8 +1017,39 @@ function checkOver() {
   }
   return true;
 }
+// v34 防死局发牌（全局，每一局每一次补牌都走这里）：
+// 每一块都必须有 ≥2 个不同的合法落点——玩家不用替系统找位置。
+// 不合格的只重抽那一块；60 轮仍不行就降级 1×2 → 1×1；整盘连 2 个空位都没有就请小助手腾一片。
+function fitCount(cells) {
+  let n = 0;
+  for (let y = S.reg.s; y < S.reg.e; y++) for (let x = S.reg.s; x < S.reg.e; x++) {
+    if (canPlace(cells, x, y)) { n++; if (n >= 2) return n; }
+  }
+  return n;
+}
+function makeTinyPiece(kind) {
+  const shape = kind === 1 ? [[0, 0]] : [[0, 0], [1, 0]];
+  const k = shape.length;
+  let cis;
+  if (S.mode === 'level' && S.goal) cis = mixCellCodes(k);
+  else if (S.mode === 'level') { const ci = BLOCK_OFFSET + Math.floor(Math.random() * COLORS.length); cis = shape.map(() => ci); }
+  else { const ci = Math.floor(Math.random() * COLORS.length); cis = shape.map(() => ci); }
+  return { cells: shape.map((c, i) => [c[0], c[1], cis[i]]), used: false };
+}
+function fitPiece() {
+  for (let t = 0; t < 60; t++) {
+    const p = randPiece();
+    if (fitCount(p.cells) >= 2) return p;
+  }
+  for (let kind = 2; kind >= 1; kind--) {
+    const p = makeTinyPiece(kind);
+    if (fitCount(p.cells) >= 2) return p;
+  }
+  if (rescueOpen(1)) S.msg = '位置太挤，小助手帮你腾了一片～';
+  return makeTinyPiece(1);
+}
 function spawn() {
-  S.pieces = [randPiece(), randPiece(), randPiece()];
+  S.pieces = [fitPiece(), fitPiece(), fitPiece()];
   S.over = checkOver();
   if (S.over) S.msg = '游戏结束！';
 }
@@ -1398,6 +1448,7 @@ function tryRestoreResume() {
   S.score = r.score || 0; S.combo = r.combo || 0;
   S.adUsed = r.adUsed || 0; S.adItems = r.adItems || [0, 0, 0];
   S.scene = 'play'; S.result = ''; S.over = false; S.drag = -1;
+  S.sel = -1;
   S.lock = false; S.fx = null; S.particles = []; S.msg = '欢迎回来，继续加油！';
   if (S.mode === 'level') S.lastLevel = Math.max(S.lastLevel, S.level);
   clearResume();
@@ -1550,6 +1601,7 @@ function startEndless() {
   S.active = 10; S.reg = regionOf(10);
   S.board = Array.from({ length: N }, () => Array(N).fill(EMPTY));
   S.score = 0; S.drag = -1; S.over = false; S.result = ''; S.pendingAd = null;
+  S.sel = -1;
   S.adUsed = 0; // 每局重置广告次数
   S.adLimit = 10; // 无尽：广告上限 10 次
   S.loseHint = null; S.combo = 0; clearFx();
@@ -1582,18 +1634,24 @@ function startLevel(n) {
   for (let y = S.reg.s; y < S.reg.e; y++) for (let x = S.reg.s; x < S.reg.e; x++) S.board[y][x] = EMPTY;
   placeObstacles(obstacleRatioOf(n));
   S.score = 0; S.drag = -1; S.over = false; S.result = ''; S.pendingAd = null;
+  S.sel = -1;
   S.adUsed = 0; S.adLimit = 2; // 关卡：广告复活上限 2 次
   S.loseHint = null; S.combo = 0; clearFx();
   const t = tierOf(n);
-  if (t === 0) S.msg = '初级练习：填满行或列拿分！';
-  else if (t === 1) S.msg = '收集 ' + Object.keys(S.goal).length + ' 种宝石，达成分数线过关！';
+  if (t <= 1) S.msg = '填满行或列就能消除得分，加油！';
+  else if (t === 2) S.msg = '区域变大啦！填满行列拿分过关！';
   else if (S.active === 8) S.msg = '盘面收紧！收集 + 消除，突破分数线过关！';
   else S.msg = '收集 + 消除，突破分数线过关！';
+  // v34 动态教程：只在首次挑战第 1 关时启动，完成后写 tutorialDone 永不再弹
+  if (n === 1 && !S.tutorialDone) S.tutorial = { step: 0, t0: Date.now() };
+  else S.tutorial = null;
+  S.sel = -1;
   clearResume();
   grantItems(); spawn();
 }
 function toMenu() {
   S.scene = 'menu'; S.drag = -1; S.pendingAd = null; S.over = false; S.result = ''; S.loseHint = null; S.albumZoom = null;
+  S.sel = -1;
   S.combo = 0; clearFx();
   clearResume();   // 回主画面即视为放弃本局，暂存清掉
 }
@@ -1604,7 +1662,10 @@ function place(idx, x0, y0) {
   for (const c of p.cells) S.board[y0 + c[1]][x0 + c[0]] = cellCI(p, c);
   S.score += p.cells.length;
   p.used = true;
+  S.sel = -1;
+  tutorialAdvance(2);         // 教程：玩家已放下第一块
   const res = clearLines();   // 分数/收集/连击在这里一次结算完
+  if (res.n) tutorialAdvance(3);  // 教程：玩家亲眼看到一次消除
   saveBest();
   // 有消除就先播动效（期间锁输入），播完再判通关/死局；没消除直接收尾
   if (res.n) startClearFx(res, finishPlace);
@@ -1726,6 +1787,8 @@ function shardFlyLoop() {
 }
 function doWin() {
   S.result = 'win'; S.over = false; S.drag = -1;
+  S.sel = -1;
+  tutorialFinish();   // 教程走到「过关」这步才算完成
   clearResume();   // 本局已分胜负，暂存作废
   addDaily('games', 1);
   sfx('done');
@@ -1747,6 +1810,7 @@ function doWin() {
 }
 function doLose() {
   S.result = 'lose'; S.over = true; S.drag = -1; S.msg = '游戏结束！';
+  S.sel = -1;
   clearResume();   // 死局不续：玩家重开/复活时会重新落暂存
   addDaily('games', 1);
   S.loseHint = 'item'; // 死局自动弹道具提示
@@ -1755,6 +1819,7 @@ function doLose() {
 // 道具/复活解除死局后，留在本局继续
 function clearLose(msg) {
   S.result = ''; S.over = false; S.pendingAd = null; S.loseHint = null; S.drag = -1;
+  S.sel = -1;
   S.msg = msg || '继续加油！';
   saveResume();   // 解围成功，局面稳定 → 重新落暂存
 }
@@ -1801,14 +1866,9 @@ function rescueOpen(R) {
   }
   return true;
 }
-// 刷子（死局态）：反复重抽，直到三块里至少有一块放得下；实在不行塞 1×1 兜底
+// 刷子（死局态）：fitPiece 已保证每块 ≥2 个落点，一次刷新即可解围
 function refreshUntilFit() {
-  for (let t = 0; t < 60; t++) {
-    refreshPieces();
-    if (!checkOver()) return true;
-  }
-  S.pieces = [randPiece(), randPiece(), randPiece()];
-  S.pieces[0] = { cells: [[0, 0]], used: false };   // 1×1 一定放得下
+  refreshPieces();
   return !checkOver();
 }
 // 关卡看广告复活：敲掉 2 片 3×3；进度全保留
@@ -1842,7 +1902,8 @@ function hammerBest() {
   return { x: bx, y: by };
 }
 function refreshPieces() {
-  for (let i = 0; i < S.pieces.length; i++) if (!S.pieces[i].used) S.pieces[i] = randPiece();
+  // 与 spawn 同一条防死局规则：刷出来的每一块也必须有 ≥2 个落点
+  for (let i = 0; i < S.pieces.length; i++) if (!S.pieces[i].used) S.pieces[i] = fitPiece();
 }
 // 道具生效。**死局态的道具语义升级为「一定解围」**：
 // 棋盘挤满时单敲一格／单换一组方块都腾不出空间，所以死局态改用大范围动作，
@@ -2657,6 +2718,9 @@ function piece(p, cx, cy, unit) {
   const sy = cy - (maxY - minY + 1) * unit / 2;
   for (const c of p.cells) drawCellOf(p, c, sx + (c[0] - minX) * unit + 1, sy + (c[1] - minY) * unit + 1, unit - 2);
 }
+// v34：手指按住的位置其实是「方块中心」，方块显示在手指上方 DRAG_LIFT，
+// 所以吸附与边界判定都要用上移后的锚点，否则预览和实际落点差一格。
+function dragAnchor(pos) { return { x: pos.x, y: pos.y - DRAG_LIFT }; }
 function snapOrigin(p, pos) {
   let minX = 99, maxX = -99, minY = 99, maxY = -99;
   for (const c of p.cells) {
@@ -2664,15 +2728,28 @@ function snapOrigin(p, pos) {
     minY = Math.min(minY, c[1]); maxY = Math.max(maxY, c[1]);
   }
   const w = maxX - minX + 1, h = maxY - minY + 1;
-  const fx = (pos.x - BX) / (CELL + GAP), fy = (pos.y - BY) / (CELL + GAP);
+  const a = dragAnchor(pos);
+  const fx = (a.x - BX) / (CELL + GAP), fy = (a.y - BY) / (CELL + GAP);
   return {
     x: Math.round(fx - (w - 1) / 2) - minX,
     y: Math.round(fy - (h - 1) / 2) - minY
   };
 }
-function inBoard(pos) {
+function inBoardRaw(pos) {
   return pos.y >= BY - 20 && pos.y < BY + N * (CELL + GAP) + 10 &&
          pos.x >= BX - 20 && pos.x < BX + N * (CELL + GAP) + 10;
+}
+function inBoard(pos) { return inBoardRaw(dragAnchor(pos)); }
+// 就近吸附：落点不合法时，在 ±2 格内找最近的可放位置（小孩也能轻松放下）
+function nearFit(cells, x0, y0) {
+  if (canPlace(cells, x0, y0)) return { x: x0, y: y0, snapped: false };
+  for (let r = 1; r <= 2; r++) {
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      if (canPlace(cells, x0 + dx, y0 + dy)) return { x: x0 + dx, y: y0 + dy, snapped: true };
+    }
+  }
+  return null;
 }
 function drawGhost(p, gx, gy, ok) {
   for (const c of p.cells) {
@@ -3729,6 +3806,59 @@ function drawLoseHint() {
   // 卡外提示压在深色遮罩上：原来用深墨字，等于写在没有底的地方，全糊 → 改浅字
   textCenter('本局已得 ' + S.score + ' 分，真的要放弃吗？', cx, 632, 13, 'rgba(255,250,242,0.94)', '', 0, true);
 }
+// ---------- v34 一次性动态教程 ----------
+// 只用圆与圆角矩形 + 呼吸光圈，跟着玩家动作推进；看完/跳过后写 tutorialDone，永不再弹。
+function tutorialAdvance(step) {
+  if (!S.tutorial || S.tutorial.step >= step) return;
+  S.tutorial.step = step; S.tutorial.t0 = Date.now();
+}
+function tutorialFinish() {
+  if (!S.tutorial) return;
+  S.tutorial = null; S.tutorialDone = true;
+  try { wx.setStorageSync('tutorialDone', true); } catch (e) { /* 忽略 */ }
+}
+function tutorialSkipHit(x, y) { return !!(S.tutorial && hit(x, y, 424, 188, 88, 34)); }
+function drawTutorial() {
+  const T = S.tutorial; if (!T) return;
+  const pulse = 0.55 + 0.45 * Math.sin(Date.now() / 320);
+  let cx = 270, cy = 470, tip = '';
+  const regCx = BX + (S.reg.s + S.reg.e) / 2 * (CELL + GAP);
+  const regCy = BY + (S.reg.s + S.reg.e) / 2 * (CELL + GAP);
+  if (T.step === 0) {
+    const i = S.pieces.findIndex(p => !p.used);
+    cx = 90 + (i < 0 ? 0 : i) * 180; cy = TRAY;
+    tip = '① 点一下下面的方块，把它拿起来';
+  } else if (T.step === 1) {
+    cx = regCx; cy = regCy;
+    tip = '② 拖到棋盘上放下，或点一下方块再点棋盘';
+  } else if (T.step === 2) {
+    cx = 71; cy = 140;
+    tip = '③ 把一整行或一整列填满，就会消除得分！';
+  } else {
+    cx = 466; cy = 140;
+    tip = '④ 分数达到右上角目标就过关啦！';
+  }
+  // 呼吸光圈：柔边 + 一次 pulse，绝不硬闪
+  ctx.save();
+  ctx.strokeStyle = 'rgba(196,126,92,' + (0.35 + 0.5 * pulse) + ')';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(cx, cy, 40 + 10 * pulse, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = 'rgba(196,126,92,' + (0.10 + 0.12 * pulse) + ')';
+  ctx.beginPath(); ctx.arc(cx, cy, 40, 0, Math.PI * 2); ctx.fill();
+  // 手指提示点（圆 + 圆角短条，不用多边形）
+  ctx.fillStyle = 'rgba(107,63,42,' + (0.28 + 0.22 * pulse) + ')';
+  ctx.beginPath(); ctx.arc(cx - 16, cy - 16, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  // 提示气泡：横跨进度条与棋盘之间的空档，不遮任何按钮
+  ctx.save();
+  softShadow(ctx, 12, 4, 0.14);
+  ctx.fillStyle = '#FFFDF8';
+  roundRectPath(ctx, 30, 188, 480, 34, 17); ctx.fill();
+  ctx.restore();
+  textCenter(tip, 262, 210, TYPE.label, UI.onSurface, '600', 0, true);
+  button(424, 188, 88, 34, 'text', '跳过', 14);
+}
+
 function drawGame() {
   drawHUD();
   drawBoardBase();
@@ -3744,18 +3874,31 @@ function drawGame() {
   for (let i = 0; i < 3; i++) itemButton(i, ITEM_X[i], ITEM_Y, ITEM_W, ITEM_H, itemTotal(i) > 0);
   for (let i = 0; i < 3; i++) traySlot(90 + i * 180);
   S.pieces.forEach((p, i) => { if (!p.used) piece(p, 90 + i * 180, TRAY, 20); });
+  // 点选态：把选中的方块描一圈暖赭呼吸框，明确告诉玩家「手上拿着这一块」
+  if (S.sel >= 0 && S.drag < 0 && S.pieces[S.sel] && !S.pieces[S.sel].used) {
+    const sx = 90 + S.sel * 180;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(196,126,92,0.85)'; ctx.lineWidth = 3;
+    roundRectPath(ctx, sx - 82, TRAY - 52, 164, 104, R); ctx.stroke();
+    ctx.restore();
+  }
   if (S.drag >= 0) {
     const p = S.pieces[S.drag];
     if (inBoard(S.pos)) {
       const o = snapOrigin(p, S.pos);
-      drawGhost(p, o.x, o.y, canPlace(p.cells, o.x, o.y));
-    // 拖拽中的方块与棋盘格几乎等大（原来 25px vs 43px，松手会「突然变大一下」）
-    } else piece(p, S.pos.x, S.pos.y, CELL - 3);
+      const fit = nearFit(p.cells, o.x, o.y);
+      if (fit) drawGhost(p, fit.x, fit.y, true);
+      else drawGhost(p, o.x, o.y, false);
+    }
+    // v34：方块显示在手指上方 58px，手指不再盖住落点
+    const a = dragAnchor(S.pos);
+    piece(p, a.x, a.y, CELL - 3);
   }
   // 提示是玩家每局都要读的：归到内容小字档，但颜色提到正文级，别淡成装饰
   textCenter(S.msg, 270, 918, TYPE.body, UI.onSurface, '600');
   if (S.result === 'win') drawWin();
   else if (S.result === 'lose') drawLose();
+  else drawTutorial();   // 教程浮层压在画面上，但不盖过关/死局弹窗
 }
 function draw() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -3778,6 +3921,8 @@ wx.onTouchStart(e => {
   const t = toDesign(e.touches[0].clientX, e.touches[0].clientY);
   // 动效播放中：挡掉落子，避免半途改动棋盘；若 rAF 被系统挂起则强制收尾
   if (S.lock) { flushFx(); return; }
+  // 教程「跳过」按钮（最优先，避免被棋盘吃掉）
+  if (tutorialSkipHit(t.x, t.y)) { tutorialFinish(); draw(); return; }
   // 每日任务弹窗
   if (S.dailyModal) {
     if (!S.daily.claimed && dailyCanClaim() && hit(t.x, t.y, 110, 564, 320, 54)) {
@@ -3956,11 +4101,25 @@ wx.onTouchStart(e => {
     }
     draw(); return;
   }
-  // 方块托盘
-  if (t.y >= TRAY - 35 && t.y <= 925) {
+  // 点选放置：已选中方块时，点棋盘任意位置直接落下（拖拽之外的第二条路）
+  if (S.drag < 0 && S.sel >= 0 && inBoardRaw(t)) {
+    const p = S.pieces[S.sel];
+    const o = snapOrigin(p, { x: t.x, y: t.y + DRAG_LIFT }); // 点选时手指即锚点，无需上移
+    const fit = nearFit(p.cells, o.x, o.y);
+    if (fit) place(S.sel, fit.x, fit.y);
+    else S.msg = '这里放不下，换个位置试试！';
+    draw(); return;
+  }
+  // 方块托盘：命中区放宽到 3 格全宽，手指偏一点也能拿起
+  if (t.y >= TRAY - 70 && t.y <= 930) {
     for (let i = 0; i < S.pieces.length; i++) {
       const p = S.pieces[i];
-      if (!p.used && Math.abs(t.x - (90 + i * 180)) < 85) { S.drag = i; S.pos = t; break; }
+      if (!p.used && t.x >= 90 + i * 180 - 90 && t.x <= 90 + i * 180 + 90) {
+        S.drag = i; S.sel = i; S.pos = t;
+        tutorialAdvance(1);   // 教程：玩家已拿起方块
+        sfx('w1');            // 拾取轻响，确认「拿到了」
+        break;
+      }
     }
   }
   draw();
@@ -3993,11 +4152,17 @@ wx.onTouchEnd(() => {
   if (S.infoTouch) { S.infoTouch = null; return; }
   if (S.drag < 0) return;
   const idx = S.drag, p = S.pieces[idx];
-  S.drag = -1;
   if (inBoard(S.pos)) {
     const o = snapOrigin(p, S.pos);
-    place(idx, o.x, o.y);
-  } else S.msg = '把方块拖到棋盘上试试！';
+    const fit = nearFit(p.cells, o.x, o.y);
+    S.drag = -1;
+    if (fit) place(idx, fit.x, fit.y);
+    else { S.sel = idx; S.msg = '这里放不下，换个位置或点选再放～'; }
+  } else {
+    // 松手在棋盘外：保留选中态，让玩家改用「点一下棋盘」放置，不惩罚误触
+    S.drag = -1; S.sel = idx;
+    S.msg = '已拿起方块，点棋盘上的位置就能放下';
+  }
   draw();
 });
 

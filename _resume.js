@@ -91,7 +91,7 @@ function ok(cond, name) {
 console.log('== 暂存往返 ==');
 const run = (expr) => vm.runInContext(expr, sandbox);
 
-run("startLevel(13)");
+run("startLevel(21)");   // v34：收集目标后移到 L21+
 // 模拟落两手（在 vm 内找可落位置）
 run(`
   function __find() {
@@ -113,7 +113,7 @@ for (let m = 0; m < 2; m++) run("var __mv = __find(); if (__mv) place(__mv.i, __
 ok(run("S.scene") === 'play' && !run("S.result"), '落子后仍在局内');
 const snap = store['resume'];
 ok(!!snap, '落子后已写入暂存');
-ok(snap && snap.mode === 'level' && snap.level === 13, '暂存含关卡信息');
+ok(snap && snap.mode === 'level' && snap.level === 21, '暂存含关卡信息');
 ok(snap && snap.goal && Object.keys(snap.goal).length > 0, '暂存含收集目标');
 
 // 模拟杀进程：全新 sandbox，只留存储
@@ -129,7 +129,7 @@ vm.runInContext(code, sandbox2, { filename: 'game.js' });
 const run2 = (expr) => vm.runInContext(expr, sandbox2);
 
 ok(run2("S.scene") === 'play', '冷启动直接回到局内（续玩）');
-ok(run2("S.mode") === 'level' && run2("S.level") === 13, '恢复的关卡一致');
+ok(run2("S.mode") === 'level' && run2("S.level") === 21, '恢复的关卡一致');
 ok(run2("S.score") === snap.score, '恢复的分数一致');
 ok(run2("S.board.length") === 10, '棋盘已重建');
 ok(!store['resume'], '恢复后暂存已清（防重复恢复）');
